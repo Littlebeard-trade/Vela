@@ -94,6 +94,8 @@ export class ChromeRenderer {
      * Requires `prepare()` to have wired the resolvers for this frame.
      */
     paneDrawingsRange(ownModels: IndicatorModel[], scene: SceneGraph, isPricePane: boolean, vr: { from: number; to: number }): { min: number; max: number } | null {
+        // LB: 'scale price chart only' — Pine drawings (pivot levels far from price) don't stretch the price pane
+        if (isPricePane && (globalThis as any).__lbScalePriceOnly) return null;
         let dr: { min: number; max: number } | null = null;
         for (const m of ownModels) dr = unionRange(dr, this.drawingsRange(modelDrawingSet(m, false), vr, scene.offsetOf(m.id)));
         if (isPricePane) for (const m of scene.indicators.values()) dr = unionRange(dr, this.drawingsRange(modelDrawingSet(m, true), vr, scene.offsetOf(m.id)));
