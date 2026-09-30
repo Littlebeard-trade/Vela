@@ -369,6 +369,7 @@ export class NativeRenderer implements IChartRenderer {
     private readonly priceStyleCbs = new Set<(style: PriceStyle) => void>();
 
     constructor(opts?: RendererDisplayOptions) {
+        (globalThis as any).__lbPanes?.register(this); // LB: remembered pane heights
         if (opts) {
             this.scene.showPriceLine = opts.currentPriceLine;
             this.scene.logScale = opts.logScale;
@@ -2005,7 +2006,7 @@ export class NativeRenderer implements IChartRenderer {
 
     // ── panes ──
     ensurePane(pane: Pane): void {
-        this.scene.ensurePane(pane.id, pane.kind, pane.order, pane.heightWeight ?? (pane.kind === 'price' ? 3 : 1));
+        this.scene.ensurePane(pane.id, pane.kind, pane.order, pane.heightWeight ?? (globalThis as any).__lbPanes?.weight(pane) ?? (pane.kind === 'price' ? 3 : 1));
         this.layoutPanes();
         // A new pane changes the count, so the lone price pane's maximize button appears.
         this.paneControls?.refresh();
@@ -2991,6 +2992,7 @@ export class NativeRenderer implements IChartRenderer {
         above.heightWeight = next.above;
         below.heightWeight = next.below;
         this.layoutPanes();
+        (globalThis as any).__lbPanes?.changed(this);
         this.scheduler.invalidate(InvalidateLevel.Full);
     }
 
@@ -3006,6 +3008,7 @@ export class NativeRenderer implements IChartRenderer {
         above.heightWeight = half;
         below.heightWeight = half;
         this.layoutPanes();
+        (globalThis as any).__lbPanes?.changed(this);
         this.scheduler.invalidate(InvalidateLevel.Full);
     }
 

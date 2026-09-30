@@ -705,6 +705,12 @@ export class DrawingSceneRenderer {
             default:
                 bx = px - w / 2; by = py - h - ptr; pointer = 'down';
         }
+        // LB: labels flagged lbTight sit ~2px above their line (TradingView-like), not a bubble's gap
+        if ((lb as any).lbTight && (lb.style === 'label_lower_right' || lb.style === 'label_lower_left')) {
+            by = py - h + padY - 2;
+            if (lb.style === 'label_lower_right') bx = px - w + padX;
+            else bx = px - padX;
+        }
 
         if (!lb.noFill) {
             ctx.fillStyle = color;
