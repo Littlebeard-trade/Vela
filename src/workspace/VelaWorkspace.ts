@@ -397,6 +397,7 @@ export class VelaWorkspace {
     private readonly onRootKeydown = (ev: KeyboardEvent): void => this.routeTyping(ev);
 
     constructor(container: HTMLElement | string, opts: VelaWorkspaceOptions = {}) {
+        (globalThis as any).__lbAlerts?.attach(this); // LB: alerts panel (read/unread, persisted history)
         registerBuiltinLayouts(); // idempotent — pickers and `layout` ids resolve from the registry
         registerBuiltinChartTypes(); // ditto — the topbar style menu resolves before the first cell builds
         const hostEl = typeof container === 'string' ? document.querySelector<HTMLElement>(container) : container;
@@ -524,7 +525,7 @@ export class VelaWorkspace {
             onUndoClick: () => this.active.history.undo(),
             onRedoClick: () => this.active.history.redo(),
             onScreenshotClick: () => this.downloadScreenshot(),
-            onAlertsClick: (anchor) => this.openAlertsMenu(anchor),
+            onAlertsClick: (anchor) => ((globalThis as any).__lbAlerts ? (globalThis as any).__lbAlerts.open(anchor) : this.openAlertsMenu(anchor)),
             timeframe: '60',
             timeframes: opts.timeframes ?? DEFAULT_TIMEFRAMES,
             timeframeFavorites: this.tfFavs,
@@ -1681,7 +1682,9 @@ export class VelaWorkspace {
             this.alerts.unshift({ cellId: cell.id, source, title: alert.title ?? 'Alert', message: alert.message, time: alert.time });
             if (this.alerts.length > this.alertCap) this.alerts.pop();
             this.toastHost.show(`${source} — ${alert.title ? alert.title + ' — ' : ''}${alert.message}`, 'info', 4000);
-            this.topbar.setAlertCount(this.alerts.length);
+            // LB: every alert also goes to the LB alerts store; the key lets it drop re-fires of the same bar
+            (globalThis as any).__lbAlerts?.push({ ...this.alerts[0], key: [cell.id, source, (alert as any).id, alert.time].join('|'), freq: (alert as any).freq, firedAt: Date.now() });
+            this.topbar.setAlertCount((globalThis as any).__lbAlerts ? (globalThis as any).__lbAlerts.unread() : this.alerts.length);
         });
         // Favorites are a WORKSPACE preference: one shared toolbar, one star set — a star
         // toggled in any cell re-applies to every other cell (and the shared bar), and
@@ -2175,7 +2178,7 @@ export class VelaWorkspace {
             onPriceStyle: (id) => this.active.setPriceStyle(id),
             panels: () => (has('panels') ? [...this.dock.list()] : []),
             onTogglePanel: (id) => this.dock.toggle(id),
-            ...(has('alerts') ? { alerts: () => this.alerts.map((a) => ({ title: `${a.source} · ${a.title}`, message: a.message, time: a.time })) } : {}),
+            ...(has('alerts') ? { alerts: () => (globalThis as any).__lbAlerts ? (globalThis as any).__lbAlerts.drawerList() : this.alerts.map((a) => ({ title: `${a.source} · ${a.title}`, message: a.message, time: a.time })) } : {}),
             // Actions placed on the bottom bar (left-aligned by default) have their stop
             // there — only the menu-placed ones land in the drawer, or they would appear
             // twice: left (primary) ones with the primary rows, right ones at the end.
