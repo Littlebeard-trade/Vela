@@ -45,6 +45,12 @@ const CSS = `
     margin-top: 0.1em;
     font-size: 0.8em;
 }
+.vela-watermark-name {
+    margin-top: 0.1em;
+    font-size: 0.45em;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
 .vela-watermark [hidden] { display: none !important; }
 `;
 
@@ -75,6 +81,8 @@ export class Watermark {
      *  canvas, so the mark stays out of its way. Starts true: the FIRST `load:start`
      *  fires during chart construction, before any subscriber can see it. */
     private loading = true;
+    private nameLine!: HTMLSpanElement;
+    private nameFor = '';
 
     constructor(host: HTMLElement, symbol: string, timeframe: string) {
         injectStyles(STYLE_ID, CSS, host.ownerDocument);
@@ -84,10 +92,13 @@ export class Watermark {
         // sits behind the candles.
         this.el.dataset.velaScreenshot = 'under';
         this.text = host.ownerDocument.createElement('span');
+        // LB: the instrument's name on a smaller second line (globalThis.__lbSymbolName)
+        this.nameLine = host.ownerDocument.createElement('span');
+        this.nameLine.className = 'vela-watermark-name';
         this.replayLine = host.ownerDocument.createElement('span');
         this.replayLine.className = 'vela-watermark-replay';
         this.replayLine.append(iconEl('replay', host.ownerDocument), host.ownerDocument.createTextNode('Replay'));
-        this.el.append(this.text, this.replayLine);
+        this.el.append(this.text, this.nameLine, this.replayLine);
         host.appendChild(this.el);
         // The el tracks the price pane (CSS insets on the host), so observing it
         // refits on splitter drags and pane-layout changes.
@@ -125,6 +136,7 @@ export class Watermark {
     private sync(): void {
         const replay = this.replayShown && this.replaying;
         this.text.hidden = !this.shown;
+        this.nameLine.hidden = !this.shown || !this.nameLine.textContent;
         this.replayLine.hidden = !replay;
         this.el.style.display = (this.shown || replay) && !this.loading ? '' : 'none';
     }
@@ -132,6 +144,18 @@ export class Watermark {
     update(symbol: string, timeframe: string): void {
         // Bare ticker — the venue prefix is routing identity, not something to watermark.
         this.text.textContent = symbol ? `${parseSymbol(symbol).ticker} · ${timeframeLabel(timeframe)}` : '';
+        // LB: the host may name the instrument ("E-mini Nasdaq-100", "SPDR S&P 500 ETF"): a string
+        // or a promise of one; a late answer for a symbol the chart has since left is dropped
+        this.nameFor = symbol;
+        this.nameLine.textContent = '';
+        const name = symbol ? (globalThis as any).__lbSymbolName?.(symbol) : undefined;
+        const apply = (n: unknown) => {
+            if (this.nameFor !== symbol) return;
+            this.nameLine.textContent = typeof n === 'string' ? n : '';
+            this.sync();
+        };
+        if (name && typeof (name as Promise<string>).then === 'function') (name as Promise<string>).then(apply, () => undefined);
+        else apply(name);
         this.fit();
     }
 
