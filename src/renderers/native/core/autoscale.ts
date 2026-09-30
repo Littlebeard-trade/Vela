@@ -47,7 +47,8 @@ export function computePaneScale(
         for (const s of model.series) {
             // force_overlay series render (and scale) on the PRICE pane, not their own —
             // the price pane folds them back in via overlaySeriesRange.
-            if (s.overlay === true) continue;
+            // LB: with 'scale price chart only', the price pane scales to the candles alone
+            if (s.overlay === true || (includeCandles && (globalThis as any).__lbScalePriceOnly)) continue;
             considerSeries(s, i0, i1, off, consider);
         }
         for (const pl of model.priceLines) consider(pl.price);

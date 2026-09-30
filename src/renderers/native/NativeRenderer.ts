@@ -3535,7 +3535,7 @@ export class NativeRenderer implements IChartRenderer {
             let dr = this.chrome.paneDrawingsRange(masterModels, this.scene, pane === pricePane, vr);
             // force_overlay series render on the price pane whatever pane their indicator
             // owns — fold their visible range in here (their own pane excludes them).
-            if (pane === pricePane) {
+            if (pane === pricePane && !(globalThis as any).__lbScalePriceOnly) {
                 const or = overlaySeriesRange(this.scene.indicators.values(), i0, i1, (id) => this.scene.offsetOf(id));
                 if (or) dr = dr ? { min: Math.min(dr.min, or.min), max: Math.max(dr.max, or.max) } : or;
             }
