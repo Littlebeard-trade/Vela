@@ -18,15 +18,16 @@ describe('drawings/FibRetracement', () => {
     // anchors (0,0) → (50,100): price range 0..100, so a level's price = ratio·100
     const make = () => createDrawing('fibretracement', { paneId: 'price', anchors: [{ time: 0, price: 0 }, { time: 50, price: 100 }] })!;
 
-    it('places a horizontal level at each fib ratio of the price range', () => {
+    it('places a horizontal level at each fib ratio of the price range (TradingView: 1 at the first anchor)', () => {
         const d = make();
         expect(d.anchorSchema().min).toBe(2);
         const lines = (d as FibLevels).levelLines(proj)!;
         const priceAt = (ratio: number) => lines.find((l) => l.ratio === ratio)?.price;
-        expect(priceAt(0)).toBe(0);
+        expect(priceAt(1)).toBe(0); // first click (price 0)
+        expect(priceAt(0)).toBe(100); // second click (price 100)
         expect(priceAt(0.5)).toBe(50);
-        expect(priceAt(0.618)).toBeCloseTo(61.8, 6);
-        expect(priceAt(1)).toBe(100);
+        expect(priceAt(0.618)).toBeCloseTo(38.2, 6);
+        expect(priceAt(1.618)).toBeCloseTo(-61.8, 6);
     });
 
     it('hit-tests on a level line, not in the gap; reports the full price range', () => {
@@ -34,7 +35,9 @@ describe('drawings/FibRetracement', () => {
         expect(d.hitTest(25, 50, proj, 4)).toBe(true); // the 0.5 level (price 50 → y 50), x 0..50
         expect(d.hitTest(25, 35, proj, 2)).toBe(false); // between levels
         expect(d.hitTest(120, 50, proj, 4)).toBe(false); // past the level's right end
-        expect(d.priceRange()).toEqual({ min: 0, max: 100 });
+        const r = d.priceRange()!;
+        expect(r.max).toBe(100); // 0 at the second anchor
+        expect(r.min).toBeCloseTo(100 - 4.236 * 100, 6); // 4.236 projects past the first anchor
     });
 
     it('round-trips through serialize', () => {
@@ -46,12 +49,12 @@ describe('drawings/FibRetracement', () => {
     it('exposes editable levels; disabling one drops it from the rendered lines', () => {
         const d = make();
         const levels = d.editableLevels()!;
-        expect(levels.length).toBe(7);
+        expect(levels.map((l) => l.ratio)).toEqual([0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.618, 2.618, 3.618, 4.236]);
         const i = levels.findIndex((l) => l.ratio === 0.5);
         d.applySettings({ [`levels.${i}.enabled`]: false }); // toggle the 0.5 level off
         const lines = (d as FibLevels).levelLines(proj)!;
         expect(lines.some((l) => l.ratio === 0.5)).toBe(false);
-        expect(lines.length).toBe(6);
+        expect(lines.length).toBe(10);
     });
 
     it('per-level color + label round-trip through serialize (props)', () => {

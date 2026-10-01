@@ -493,17 +493,25 @@ export class DrawingPainter {
         ctx.restore();
     }
 
-    /** Paint any Fibonacci tool from its resolved entry lines: optional fill bands, then each
-     *  colored line with its auto-number + optional centered custom label (both per-tool sized). */
+    /** Paint any Fibonacci tool from its resolved entry lines: optional fill bands, the optional
+     *  anchor-to-anchor trend line, then each colored line with its auto-number + optional
+     *  centered custom label (both per-tool sized). Empty number text paints nothing. */
     private paintFibRatios(ctx: CanvasRenderingContext2D, d: FibRatios, proj: Projector, theme: VelaTheme): void {
         const lines = d.entryLines(proj);
         if (!lines || lines.length === 0) return;
         for (const band of d.fillBands(proj)) {
             ctx.save();
-            ctx.globalAlpha = 0.06 * ctx.globalAlpha;
+            ctx.globalAlpha = (band.opacity ?? 0.06) * ctx.globalAlpha;
             ctx.fillStyle = band.color;
             ctx.fillRect(band.x, band.y, band.w, band.h);
             ctx.restore();
+        }
+        const trend = d.trendSegment(proj);
+        if (trend) {
+            this.stroke(ctx, { lineColor: trend.color, lineWidth: trend.width, lineStyle: trend.style }, () => {
+                ctx.moveTo(trend.x1, trend.y1);
+                ctx.lineTo(trend.x2, trend.y2);
+            });
         }
         ctx.textBaseline = 'middle';
         const numFont = `${namedFontSize(d.numbersSize)}px ${theme.fontFamily}`;
@@ -516,7 +524,7 @@ export class DrawingPainter {
             ctx.fillStyle = l.color;
             ctx.font = numFont;
             ctx.textAlign = l.numberAlign;
-            ctx.fillText(l.numberText, l.numberX, l.numberY);
+            if (l.numberText) ctx.fillText(l.numberText, l.numberX, l.numberY);
             if (l.label) {
                 ctx.font = lblFont;
                 ctx.textAlign = 'center';

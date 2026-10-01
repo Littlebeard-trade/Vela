@@ -1,5 +1,5 @@
 import type { Projector } from '../geometry';
-import { FibRatios, type FibEntryLine } from './FibRatios';
+import { FibRatios, type FibBand, type FibEntryLine } from './FibRatios';
 
 /** A resolved (enabled) level in pixels: its price, color, label, and line to stroke. */
 export interface FibLevelLine {
@@ -15,27 +15,47 @@ export interface FibLevelLine {
 /**
  * Shared base for the horizontal Fibonacci level tools (retracement, extension): two
  * anchors define a price range; each level is a horizontal line at
- * `p1.price + ratio·(p2.price − p1.price)`, spanning the anchors' time range, with
- * fill bands between consecutive levels. Subclasses just declare the default ratio set.
+ * `origin + ratio·delta` (by default `p1.price + ratio·(p2.price − p1.price)` — see
+ * {@link levelBase}), spanning the anchors' time range, with fill bands between
+ * consecutive levels. Subclasses declare the default ratio set and may re-orient
+ * ({@link levelBase}) or widen ({@link levelSpan}) the levels.
  */
 export abstract class FibLevels extends FibRatios {
+    /** The price ratio 0 sits at (`origin`) and the signed span ratio 1 adds (`delta`).
+     *  Default: 0 at the first anchor, 1 at the second. */
+    protected levelBase(): { origin: number; delta: number } | null {
+        const a = this.anchors[0];
+        const b = this.anchors[1];
+        if (!a || !b) return null;
+        return { origin: a.price, delta: b.price - a.price };
+    }
+
+    /** Horizontal pixel extent of every level line, from the anchors' span (default: as-is). */
+    protected levelSpan(_proj: Projector, x1: number, x2: number): [number, number] {
+        return [x1, x2];
+    }
+
+    /** The color a level paints with (lines, numbers, bands) — its own by default. */
+    protected levelPaint(color: string): string {
+        return color;
+    }
+
     /** Per-level pixel line + price for the ENABLED levels, spanning the anchors' time range. */
     levelLines(proj: Projector): FibLevelLine[] | null {
         const a = this.anchors[0];
         const b = this.anchors[1];
-        if (!a || !b) return null;
+        const base = this.levelBase();
+        if (!a || !b || !base) return null;
         const xa = proj.xOf(a.time);
         const xb = proj.xOf(b.time);
-        const x1 = Math.min(xa, xb);
-        const x2 = Math.max(xa, xb);
-        const delta = b.price - a.price;
+        const [x1, x2] = this.levelSpan(proj, Math.min(xa, xb), Math.max(xa, xb));
         const out: FibLevelLine[] = [];
         for (const lv of this.levels) {
             if (!lv.enabled) continue;
-            const price = a.price + lv.ratio * delta;
+            const price = base.origin + lv.ratio * base.delta;
             const y = proj.yOf(price, this.paneId);
             if (y == null) continue;
-            out.push({ ratio: lv.ratio, color: lv.color, label: lv.label, price, x1, x2, y });
+            out.push({ ratio: lv.ratio, color: this.levelPaint(lv.color), label: lv.label, price, x1, x2, y });
         }
         return out;
     }
@@ -59,10 +79,10 @@ export abstract class FibLevels extends FibRatios {
         }));
     }
 
-    override fillBands(proj: Projector): Array<{ color: string; x: number; y: number; w: number; h: number }> {
+    override fillBands(proj: Projector): FibBand[] {
         const lines = this.levelLines(proj);
         if (!lines) return [];
-        const bands: Array<{ color: string; x: number; y: number; w: number; h: number }> = [];
+        const bands: FibBand[] = [];
         for (let i = 1; i < lines.length; i += 1) {
             const a = lines[i - 1]!;
             const b = lines[i]!;
@@ -72,11 +92,9 @@ export abstract class FibLevels extends FibRatios {
     }
 
     priceRange(): { min: number; max: number } | null {
-        const a = this.anchors[0];
-        const b = this.anchors[1];
-        if (!a || !b) return null;
-        const delta = b.price - a.price;
-        const prices = this.levels.filter((l) => l.enabled).map((l) => a.price + l.ratio * delta);
+        const base = this.levelBase();
+        if (!base) return null;
+        const prices = this.levels.filter((l) => l.enabled).map((l) => base.origin + l.ratio * base.delta);
         if (prices.length === 0) return null;
         return { min: Math.min(...prices), max: Math.max(...prices) };
     }

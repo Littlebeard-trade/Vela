@@ -1,5 +1,6 @@
 import { Drawing, type AnchorSlot, type SerializedDrawing } from '../Drawing';
 import type { Projector } from '../geometry';
+import type { LineStyle } from '../../model/series';
 import type { SettingsSchema } from '../schema';
 import { LINE_FIELDS } from '../schema';
 import { distToSegment, handleAt } from '../hittest';
@@ -17,7 +18,7 @@ export type FibTextSize = 'small' | 'normal' | 'large' | 'huge';
 const isFibSize = (v: unknown): v is FibTextSize => v === 'small' || v === 'normal' || v === 'large' || v === 'huge';
 
 /** Coerce an untrusted value into a valid level (defensive, for persistence/round-trip). */
-function sanitizeLevel(v: unknown): FibLevel | null {
+export function sanitizeLevel(v: unknown): FibLevel | null {
     if (!v || typeof v !== 'object') return null;
     const o = v as Partial<FibLevel>;
     if (typeof o.ratio !== 'number' || typeof o.color !== 'string') return null;
@@ -43,6 +44,27 @@ export interface FibEntryLine {
     numberAlign: 'left' | 'center' | 'right';
     labelX: number;
     labelY: number;
+}
+
+/** A fill band between two entries; `opacity` (0..1) overrides the painter's faint default. */
+export interface FibBand {
+    color: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    opacity?: number;
+}
+
+/** An extra stroked segment drawn under the entries (the retracement's anchor-to-anchor trend line). */
+export interface FibTrendSegment {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    color: string;
+    width: number;
+    style: LineStyle;
 }
 
 /**
@@ -73,8 +95,12 @@ export abstract class FibRatios extends Drawing {
     /** ENABLED entries resolved to pixel lines + label placement — the painter's input. */
     abstract entryLines(proj: Projector): FibEntryLine[] | null;
     /** Optional fill bands between entries (retracement/extension override); default none. */
-    fillBands(_proj: Projector): Array<{ color: string; x: number; y: number; w: number; h: number }> {
+    fillBands(_proj: Projector): FibBand[] {
         return [];
+    }
+    /** Optional anchor-to-anchor trend line painted under the entries (retracement); default none. */
+    trendSegment(_proj: Projector): FibTrendSegment | null {
+        return null;
     }
 
     override editableLevels(): FibLevel[] | null {

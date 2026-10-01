@@ -62,9 +62,9 @@ export { Arc } from './types/Arc';
 export { Curve } from './types/Curve';
 export { ArrowMark, ArrowMarkUp, ArrowMarkDown } from './types/ArrowMark';
 export { GlyphStamp, FlagMark, IconStamp, GLYPH_OPTIONS, STAMP_SIZE_OPTIONS } from './types/GlyphStamp';
-export { FibRatios, type FibLevel, type FibTextSize, type FibEntryLine } from './types/FibRatios';
+export { FibRatios, type FibLevel, type FibTextSize, type FibEntryLine, type FibBand, type FibTrendSegment } from './types/FibRatios';
 export { FibLevels, type FibLevelLine } from './types/FibLevels';
-export { FibRetracement } from './types/FibRetracement';
+export { FibRetracement, formatFibRatio, type FibRetracementOptions, type FibTrendLineStyle, type FibLabelsH, type FibLabelsV, type FibLevelsFormat } from './types/FibRetracement';
 export { FibExtension } from './types/FibExtension';
 export { FibExtensionTrend } from './types/FibExtensionTrend';
 export { FibFan, type FibFanLine } from './types/FibFan';
@@ -133,6 +133,23 @@ export {
     type DrawingTypeMeta,
 } from './registry';
 export { migrate, isValidSerialized, clonePlain, DRAWINGS_DOC_VERSION, type DrawingsDocument } from './document';
+export {
+    DRAWING_TEMPLATES_KEY_PREFIX,
+    setDrawingTemplateStorage,
+    templateDataOf,
+    applyTemplateData,
+    listDrawingTemplates,
+    getDrawingTemplate,
+    saveDrawingTemplate,
+    deleteDrawingTemplate,
+    applyDrawingTemplate,
+    saveDefaultDrawingTemplate,
+    defaultDrawingTemplate,
+    clearDefaultDrawingTemplate,
+    type DrawingTemplate,
+    type DrawingTemplateData,
+    type DrawingTemplateStorage,
+} from './templates';
 export { DrawingStore } from './DrawingStore';
 export { DrawingHistory } from './DrawingHistory';
 export * from './hittest';
