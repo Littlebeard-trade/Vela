@@ -12,7 +12,7 @@ import type {
     SnapMode,
     ToolbarDefinition,
 } from '../../../core/drawings';
-import { deserializeDrawing, getDrawingType, resetDrawingSettings, Callout, Magnifier, TextLabel } from '../../../core/drawings';
+import { deserializeDrawing, ensureDrawingTemplateStorage, getDrawingType, resetDrawingSettings, Callout, Magnifier, TextLabel, type DrawingTemplateStorage } from '../../../core/drawings';
 import type { Unsubscribe } from '../../../core/util/types';
 import { contrastColor, namedFontSize, labelLineHeight, TEXT_FRAME_INSET, TEXT_FRAME_RISE } from '../../shared/drawing-geometry';
 import { withAlpha } from '../core/chartConfig';
@@ -183,6 +183,10 @@ export class UserDrawingController implements IDrawingsRendererPort {
             snap: (pt, paneId, mode, cursorPx) => this.deps.snap(pt, paneId, mode, cursorPx),
             lastStyle: () => this.activeToolStyle,
         });
+        // Drawing templates (and the per-type default new drawings start from) persist in the
+        // browser unless the host routed them elsewhere first.
+        const ls = browserTemplateStorage();
+        if (ls) ensureDrawingTemplateStorage(ls);
     }
 
     // ── IDrawingsRendererPort (commands down) ──
@@ -1217,4 +1221,40 @@ export class UserDrawingController implements IDrawingsRendererPort {
         }
         this.intentCb?.(i);
     }
+}
+
+/** The browser's localStorage as the template store, every access fail-silent (a sandboxed
+ *  frame throws on mere access; private mode / quota throw on write). Null without one. */
+function browserTemplateStorage(): DrawingTemplateStorage | null {
+    let ls: Storage | undefined;
+    try {
+        ls = (globalThis as { localStorage?: Storage }).localStorage;
+    } catch {
+        return null;
+    }
+    if (!ls) return null;
+    const store = ls;
+    return {
+        getItem: (key) => {
+            try {
+                return store.getItem(key);
+            } catch {
+                return null;
+            }
+        },
+        setItem: (key, value) => {
+            try {
+                store.setItem(key, value);
+            } catch {
+                /* best-effort */
+            }
+        },
+        removeItem: (key) => {
+            try {
+                store.removeItem(key);
+            } catch {
+                /* best-effort */
+            }
+        },
+    };
 }

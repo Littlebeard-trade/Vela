@@ -18,7 +18,7 @@ describe('drawings/FibRetracement', () => {
     // anchors (0,0) → (50,100): price range 0..100, so a level's price = ratio·100
     const make = () => createDrawing('fibretracement', { paneId: 'price', anchors: [{ time: 0, price: 0 }, { time: 50, price: 100 }] })!;
 
-    it('places a horizontal level at each fib ratio of the price range (TradingView: 1 at the first anchor)', () => {
+    it('places a horizontal level at each fib ratio of the price range (1 at the first anchor, 0 at the second)', () => {
         const d = make();
         expect(d.anchorSchema().min).toBe(2);
         const lines = (d as FibLevels).levelLines(proj)!;

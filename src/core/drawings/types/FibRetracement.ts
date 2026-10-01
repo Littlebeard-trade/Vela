@@ -7,7 +7,7 @@ import { distToSegment } from '../hittest';
 import { fibLevels, LEVEL_ANCHOR, LEVEL_PURPLE } from '../levelPalette';
 import { DEFAULT_DRAWING_COLOR } from '../style';
 
-/** TradingView's enabled retracement set: the swing (0 → 1) plus its extensions to 4.236. */
+/** The standard enabled retracement set: the swing (0 → 1) plus its extensions to 4.236. */
 const LEVELS = fibLevels([0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.618, 2.618, { ratio: 3.618, color: LEVEL_PURPLE }, 4.236]);
 
 export type FibLabelsH = 'left' | 'center' | 'right';
@@ -15,7 +15,7 @@ export type FibLabelsV = 'top' | 'middle' | 'bottom';
 /** How the level ratio prints: `values` = 0.618, `percents` = 61.8%. */
 export type FibLevelsFormat = 'values' | 'percents';
 
-/** The dashed anchor-to-anchor line TradingView draws through the swing. */
+/** The anchor-to-anchor line drawn through the swing (dashed by default). */
 export interface FibTrendLineStyle {
     visible: boolean;
     color: string;
@@ -23,9 +23,9 @@ export interface FibTrendLineStyle {
     style: LineStyle;
 }
 
-/** The TradingView-style options a retracement persists in `props` (besides levels + sizes). */
+/** The display options a retracement persists in `props` (besides levels + sizes). */
 export interface FibRetracementOptions {
-    /** False (TradingView default): 1 at the first anchor, 0 at the second. True: 0 at the first. */
+    /** False (default): 1 at the first anchor, 0 at the second. True: 0 at the first. */
     reverse: boolean;
     trendLine: FibTrendLineStyle;
     extendLeft: boolean;
@@ -44,7 +44,7 @@ export interface FibRetracementOptions {
 
 const TREND_DEFAULT: FibTrendLineStyle = { visible: true, color: LEVEL_ANCHOR, width: 1, style: 'dashed' };
 
-/** What a NEW retracement starts with (TradingView's defaults). */
+/** What a NEW retracement starts with. */
 const NEW_DEFAULTS: FibRetracementOptions = {
     reverse: false,
     trendLine: TREND_DEFAULT,
@@ -118,8 +118,8 @@ const PAD = 4; // label inset from a line end (px)
 const RISE = 7; // label offset above/below its line (px)
 
 /**
- * Fibonacci retracement: horizontal levels between two swing anchors, modelled on
- * TradingView's tool — by default ratio 1 sits on the FIRST click and 0 on the second
+ * Fibonacci retracement: horizontal levels between two swing anchors. By default ratio 1
+ * sits on the FIRST click and 0 on the second — the move retraces from where it ended —
  * (`reverse` flips it), with a dashed trend line through the swing, optional extension
  * to the pane edges, price / ratio text placed by `labelsH` × `labelsV`, a translucent
  * background, and an optional single color for every level.
@@ -144,7 +144,7 @@ export class FibRetracement extends FibLevels implements FibRetracementOptions {
     constructor(init: Partial<SerializedDrawing> & { paneId: string }) {
         super(init);
         // Options a persisted record carried were read (or legacy-defaulted) by readProps
-        // during super(); anything still unset is a brand-new drawing → TradingView defaults.
+        // during super(); anything still unset is a brand-new drawing → the new defaults.
         const self = this as unknown as Record<string, unknown>;
         for (const k of OPTION_KEYS) {
             if (self[k] === undefined) self[k] = clone(NEW_DEFAULTS[k]);
@@ -155,7 +155,7 @@ export class FibRetracement extends FibLevels implements FibRetracementOptions {
         return LEVELS;
     }
 
-    /** TradingView orientation: 1 at the first anchor, 0 at the second; `reverse` → 0 at the first. */
+    /** Default orientation: 1 at the first anchor, 0 at the second; `reverse` → 0 at the first. */
     protected override levelBase(): { origin: number; delta: number } | null {
         const a = this.anchors[0];
         const b = this.anchors[1];
@@ -255,13 +255,16 @@ export class FibRetracement extends FibLevels implements FibRetracementOptions {
     protected override readProps(props: Record<string, unknown>): void {
         super.readProps(props);
         const self = this as unknown as Record<string, unknown>;
+        // While constructing, every option is still unset. A record without `reverse` predates
+        // these options → each one takes its LEGACY value (renders as before); a newer record
+        // falls back to the new defaults for a malformed key. Later partial patches leave
+        // unmentioned options alone.
+        const fallback = typeof props.reverse === 'boolean' ? NEW_DEFAULTS : LEGACY_DEFAULTS;
         for (const k of OPTION_KEYS) {
-            // While constructing, every option is still unset: a key the record lacks predates
-            // the option → its LEGACY value (renders as before). Later partial patches leave it.
-            const current = (self[k] as FibRetracementOptions[typeof k] | undefined) ?? LEGACY_DEFAULTS[k];
+            const current = (self[k] as FibRetracementOptions[typeof k] | undefined) ?? fallback[k];
             const v = sanitizeOption(k, props[k], current);
             if (v !== undefined) self[k] = v;
-            else if (self[k] === undefined) self[k] = clone(LEGACY_DEFAULTS[k]);
+            else if (self[k] === undefined) self[k] = clone(fallback[k]);
         }
     }
 }

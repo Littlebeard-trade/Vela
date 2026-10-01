@@ -10,6 +10,7 @@ import {
     MACH_WAVE_COUNT_OPTIONS,
     MACH_NUMBER_OPTIONS,
     MachFigure,
+    FibRetracement,
     FixedRangeVolumeProfile,
     PositionTool,
     Magnifier,
@@ -361,7 +362,8 @@ export class DrawingSettingsPopup {
         bar.appendChild(this.divider());
         if (!multi && isFrvp) bar.appendChild(this.iconBtn('Settings', GEAR_ICON, () => this.settingsDialog.open(drawing, actions, 'frvp')));
         if (!multi && isPosition) bar.appendChild(this.iconBtn('Position size', GEAR_ICON, () => this.settingsDialog.open(drawing, actions, 'position')));
-        if (!multi && editableLevels) bar.appendChild(this.iconBtn('Levels', GEAR_ICON, () => this.settingsDialog.open(drawing, actions, 'levels')));
+        if (!multi && drawing instanceof FibRetracement) bar.appendChild(this.iconBtn('Settings', GEAR_ICON, () => this.settingsDialog.open(drawing, actions, 'fib')));
+        else if (!multi && editableLevels) bar.appendChild(this.iconBtn('Levels', GEAR_ICON, () => this.settingsDialog.open(drawing, actions, 'levels')));
         bar.appendChild(this.toggle('Lock', LOCK_ICON, common((d) => d.locked), (v) => actions.setLocked(v), UNLOCK_ICON));
         const del = this.iconBtn('Delete', TRASH_ICON, () => actions.remove());
         del.style.color = 'var(--vela-danger)';
