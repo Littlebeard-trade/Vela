@@ -1,12 +1,22 @@
 import type { VelaTheme } from '../../../core/options';
-import type { Drawing, FrvpStyle, PositionLevelMode, SerializedDrawing } from '../../../core/drawings';
+import type { Drawing, FibLevel, FrvpStyle, PositionLevelMode, SerializedDrawing } from '../../../core/drawings';
 import {
     DIRECTION_OPTIONS,
+    FibRetracement,
     FixedRangeVolumeProfile,
     LINE_STYLE_OPTIONS,
     MachFigure,
     PositionTool,
+    applyTemplateData,
+    clearDefaultDrawingTemplate,
     clonePlain,
+    defaultDrawingTemplate,
+    deleteDrawingTemplate,
+    levelColor,
+    listDrawingTemplates,
+    resetDrawingSettings,
+    saveDefaultDrawingTemplate,
+    saveDrawingTemplate,
 } from '../../../core/drawings';
 import { contrastColor } from '../../shared/drawing-geometry';
 import { applyChromeTokens } from '../../shared/theme-tokens';
@@ -14,9 +24,10 @@ import { Dialog } from '../../../ui/components/dialog';
 import { closeOpenPopovers, eventDismissedPopover, isPopoverOpen } from '../../../ui/components/popover';
 import { fieldGrid, fieldRow, fieldSection, buildFieldControl } from '../../../ui/components/field';
 import type { SelectOption } from '../../../ui/components/select';
+import { Menu, type MenuItemDescriptor } from '../../../ui/components/menu';
 import type { SettingsActions } from './DrawingSettingsPopup';
 
-export type DrawingDialogKind = 'position' | 'frvp' | 'levels';
+export type DrawingDialogKind = 'position' | 'frvp' | 'levels' | 'fib';
 
 const LEVEL_UNITS: readonly SelectOption[] = [
     { value: 'price', label: 'Price' },
@@ -27,10 +38,26 @@ const FRVP_ANCHOR: readonly SelectOption[] = [
     { value: 'left', label: 'Left' },
 ];
 
+const FIB_LABELS_H: readonly SelectOption[] = [
+    { value: 'left', label: 'Left' },
+    { value: 'center', label: 'Center' },
+    { value: 'right', label: 'Right' },
+];
+const FIB_LABELS_V: readonly SelectOption[] = [
+    { value: 'top', label: 'Top' },
+    { value: 'middle', label: 'Middle' },
+    { value: 'bottom', label: 'Bottom' },
+];
+const FIB_FORMAT: readonly SelectOption[] = [
+    { value: 'values', label: 'Values' },
+    { value: 'percents', label: 'Percents' },
+];
+
 const TITLES: Record<DrawingDialogKind, string> = {
     position: 'Position size',
     frvp: 'Volume profile',
     levels: 'Levels',
+    fib: 'Fib Retracement',
 };
 
 /**
@@ -66,10 +93,21 @@ export class DrawingSettingsDialog {
         grid.style.overflowY = 'auto';
         grid.style.overflowX = 'hidden';
         grid.style.flex = '1 1 auto';
-        if (kind === 'position' && drawing instanceof PositionTool) this.buildPosition(grid, drawing, actions);
-        else if (kind === 'frvp' && drawing instanceof FixedRangeVolumeProfile) this.buildFrvp(grid, drawing, actions);
-        else if (kind === 'levels') this.buildLevels(grid, drawing, actions);
-        else return;
+        // (Re)build the controls from the LIVE drawing — a template apply or a level add/remove
+        // rebuilds in place, keeping the dialog (and its open-time Cancel snapshot) as is.
+        const populate = (): boolean => {
+            const d = actions.resolve() ?? drawing;
+            const top = grid.scrollTop;
+            grid.replaceChildren();
+            if (kind === 'position' && d instanceof PositionTool) this.buildPosition(grid, d, actions);
+            else if (kind === 'frvp' && d instanceof FixedRangeVolumeProfile) this.buildFrvp(grid, d, actions);
+            else if (kind === 'fib' && d instanceof FibRetracement) this.buildFib(grid, d, actions, populate);
+            else if (kind === 'levels') this.buildLevels(grid, d, actions);
+            else return false;
+            grid.scrollTop = top;
+            return true;
+        };
+        if (!populate()) return;
 
         const ui = new Dialog({
             host: this.host,
@@ -84,6 +122,7 @@ export class DrawingSettingsDialog {
             className: 'vela-dialog--form',
             closeOnEscape: false,
             footer: (foot) => {
+                if (actions.restore) this.templateControls(foot, drawing.type, actions, populate);
                 foot.append(
                     btn('Cancel', false, () => {
                         actions.restore?.(snapshot);
@@ -122,7 +161,237 @@ export class DrawingSettingsDialog {
     close(): void {
         const ui = this.ui;
         this.ui = null;
+        this.templateMenu?.destroy();
+        this.templateMenu = null;
         ui?.destroy();
+    }
+
+    private templateMenu: Menu | null = null;
+
+    /**
+     * The footer's "Template" menu: save the drawing's cosmetics as a named template of its
+     * type, apply or delete a saved one, make them the default every new drawing of the type
+     * starts from, or reset to the factory defaults. Applying goes through `restore` (one
+     * edit, the store updated) and rebuilds the controls in place.
+     */
+    private templateControls(foot: HTMLElement, type: Drawing['type'], actions: SettingsActions, rebuild: () => boolean): void {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'margin-right:auto;display:flex;align-items:center;gap:8px;';
+        const trigger = btn('Template ▾', false, () => { /* the menu machine owns the click */ });
+
+        // Inline "Save as…" name entry, shown in place of the trigger.
+        const nameRow = document.createElement('div');
+        nameRow.style.cssText = 'display:none;align-items:center;gap:8px;';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'Template name';
+        input.setAttribute('aria-label', 'Template name');
+        input.className = 'vela-dialog-btn';
+        input.style.cssText = 'width:150px;cursor:text;';
+        const showName = (on: boolean): void => {
+            nameRow.style.display = on ? 'flex' : 'none';
+            trigger.style.display = on ? 'none' : '';
+            if (on) {
+                input.value = '';
+                input.focus();
+            }
+        };
+        const commitName = (): void => {
+            const d = actions.resolve();
+            if (d && input.value.trim()) saveDrawingTemplate(d, input.value);
+            showName(false);
+        };
+        input.addEventListener('keydown', (e) => {
+            e.stopPropagation(); // Escape here drops the name, not the dialog
+            if (e.key === 'Enter') commitName();
+            else if (e.key === 'Escape') showName(false);
+        });
+        nameRow.append(input, btn('Save', true, commitName), btn('Cancel', false, () => showName(false)));
+
+        const apply = (mutate: (d: Drawing) => void): void => {
+            const d = actions.resolve();
+            if (!d) return;
+            mutate(d);
+            actions.restore?.(clonePlain(d.serialize()));
+            rebuild();
+        };
+        const items = (): MenuItemDescriptor[] => {
+            const saved = listDrawingTemplates(type);
+            const hasDefault = defaultDrawingTemplate(type) != null;
+            const out: MenuItemDescriptor[] = [
+                { id: 'save-as', label: 'Save as…' },
+                { id: 'save-default', label: 'Save as default' },
+                { id: 'apply-default', label: 'Apply default', disabled: !hasDefault },
+                { id: 'clear-default', label: 'Forget saved default', disabled: !hasDefault },
+                { id: 'reset', label: 'Reset to factory defaults' },
+            ];
+            if (saved.length === 0) out.push({ id: 'none', label: 'No saved templates', disabled: true, separatorBefore: true });
+            saved.forEach((t, i) => out.push({ id: `apply:${t.name}`, label: t.name, separatorBefore: i === 0 }));
+            if (saved.length > 0) {
+                out.push({
+                    id: 'delete',
+                    label: 'Delete template',
+                    separatorBefore: true,
+                    submenu: saved.map((t) => ({ id: `delete:${t.name}`, label: t.name })),
+                });
+            }
+            return out;
+        };
+        const menu = new Menu({
+            trigger,
+            host: this.host,
+            items: items(),
+            onOpenChange: (open) => { if (open) menu.setItems(items()); },
+            onSelect: (id) => {
+                const d = actions.resolve();
+                if (!d) return;
+                if (id === 'save-as') showName(true);
+                else if (id === 'save-default') saveDefaultDrawingTemplate(d);
+                else if (id === 'clear-default') clearDefaultDrawingTemplate(type);
+                else if (id === 'apply-default') {
+                    const data = defaultDrawingTemplate(type);
+                    if (data) apply((x) => applyTemplateData(x, data));
+                } else if (id === 'reset') apply((x) => resetDrawingSettings(x));
+                else if (id.startsWith('apply:')) {
+                    const tpl = listDrawingTemplates(type).find((t) => t.name === id.slice('apply:'.length));
+                    if (tpl) apply((x) => applyTemplateData(x, tpl));
+                } else if (id.startsWith('delete:')) deleteDrawingTemplate(type, id.slice('delete:'.length));
+            },
+        });
+        this.templateMenu = menu;
+        wrap.append(trigger, nameRow);
+        foot.appendChild(wrap);
+    }
+
+    /** The retracement's full settings: a Style section (trend line, levels line, extension,
+     *  orientation, text, background, single color) and its editable level list. */
+    private buildFib(grid: HTMLElement, drawing: FibRetracement, actions: SettingsActions, rebuild: () => boolean): void {
+        const live = (): FibRetracement => {
+            const d = actions.resolve();
+            return d instanceof FibRetracement ? d : drawing;
+        };
+        const styles = LINE_STYLE_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
+        const select = (options: readonly SelectOption[], value: string, path: string): HTMLElement =>
+            buildFieldControl({ kind: 'select', options, value, fill: false, theme: this.theme, onChange: (v) => actions.patch({ [path]: v }) }).el;
+        const color = (get: () => string, path: string): HTMLElement =>
+            buildFieldControl({ kind: 'color', theme: this.theme, get, onChange: (v) => actions.patch({ [path]: v }) }).el;
+        const width = (get: () => number, path: string): HTMLElement =>
+            buildFieldControl({ kind: 'width', theme: this.theme, get, onChange: (v) => actions.patch({ [path]: v }) }).el;
+        const boolRow = (label: string, path: 'reverse' | 'extendLeft' | 'extendRight' | 'showPrices'): void => {
+            grid.appendChild(fieldRow({
+                label,
+                bool: true,
+                toggle: { checked: live()[path], onChange: (v) => actions.patch({ [path]: v }) },
+            }));
+        };
+        const d = drawing;
+
+        grid.appendChild(fieldSection('Style', { variant: 'inputs', first: true }));
+        grid.appendChild(fieldRow({
+            label: 'Trend line',
+            toggle: { checked: d.trendLine.visible, onChange: (v) => actions.patch({ 'trendLine.visible': v }) },
+            control: [
+                color(() => live().trendLine.color, 'trendLine.color'),
+                width(() => live().trendLine.width, 'trendLine.width'),
+                select(styles, d.trendLine.style, 'trendLine.style'),
+            ],
+        }));
+        grid.appendChild(fieldRow({
+            label: 'Levels line',
+            control: [width(() => live().style.lineWidth, 'style.lineWidth'), select(styles, d.style.lineStyle, 'style.lineStyle')],
+        }));
+        boolRow('Extend lines left', 'extendLeft');
+        boolRow('Extend lines right', 'extendRight');
+        boolRow('Reverse', 'reverse');
+        boolRow('Prices', 'showPrices');
+        grid.appendChild(fieldRow({
+            label: 'Levels',
+            toggle: { checked: d.showLevels, onChange: (v) => actions.patch({ showLevels: v }) },
+            control: select(FIB_FORMAT, d.levelsFormat, 'levelsFormat'),
+        }));
+        grid.appendChild(fieldRow({
+            label: 'Labels',
+            control: [select(FIB_LABELS_H, d.labelsH, 'labelsH'), select(FIB_LABELS_V, d.labelsV, 'labelsV')],
+        }));
+        grid.appendChild(fieldRow({
+            label: 'Background',
+            toggle: { checked: d.fillBackground, onChange: (v) => actions.patch({ fillBackground: v }) },
+            control: buildFieldControl({
+                kind: 'number',
+                value: d.backgroundTransparency,
+                min: 0,
+                max: 100,
+                step: 5,
+                integer: true,
+                fill: false,
+                commit: 'blur',
+                title: 'Transparency %',
+                onChange: (n) => actions.patch({ backgroundTransparency: Math.min(100, Math.max(0, n)) }),
+            }).el,
+        }));
+        grid.appendChild(fieldRow({
+            label: 'Use one color',
+            toggle: { checked: d.useOneColor, onChange: (v) => actions.patch({ useOneColor: v }) },
+            control: color(() => live().oneColor, 'oneColor'),
+        }));
+
+        grid.appendChild(fieldSection('Levels', { variant: 'inputs' }));
+        const setLevels = (next: FibLevel[]): void => {
+            actions.patch({ levels: next });
+            rebuild();
+        };
+        d.levels.forEach((lv, i) => {
+            const row = document.createElement('div');
+            row.className = 'vela-field-span';
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+            const sw = buildFieldControl({ kind: 'switch', checked: lv.enabled, onChange: (v) => actions.patch({ [`levels.${i}.enabled`]: v }) });
+            let curRatio = lv.ratio;
+            const ratio = buildFieldControl({
+                kind: 'number',
+                value: curRatio,
+                step: 0.01,
+                compact: true,
+                commit: 'blur',
+                onChange: (n) => {
+                    if (!Number.isFinite(n)) {
+                        ratio.setValue?.(curRatio);
+                        return;
+                    }
+                    curRatio = n;
+                    actions.patch({ [`levels.${i}.ratio`]: n });
+                },
+            });
+            ratio.el.style.flex = '0 0 88px';
+            ratio.el.style.width = '88px';
+            const col = color(() => live().levels[i]?.color ?? lv.color, `levels.${i}.color`);
+            const label = buildFieldControl({
+                kind: 'text',
+                value: lv.label ?? '',
+                fill: true,
+                placeholder: 'label…',
+                onChange: (v) => actions.patch({ [`levels.${i}.label`]: v }),
+            });
+            label.el.style.flex = '1';
+            label.el.style.minWidth = '60px';
+            const del = btn('×', false, () => {
+                const cur = live().levels;
+                if (cur.length > 1) setLevels(cur.filter((_, j) => j !== i).map((l) => ({ ...l })));
+            });
+            del.title = 'Remove level';
+            del.setAttribute('aria-label', 'Remove level');
+            del.disabled = d.levels.length <= 1;
+            row.append(sw.el, ratio.el, col, label.el, del);
+            grid.appendChild(row);
+        });
+        const add = btn('+ Add level', false, () => {
+            const cur = live().levels;
+            const top = cur.reduce((m, l) => Math.max(m, l.ratio), 0);
+            const ratio = Math.round((top + 0.5) * 1000) / 1000;
+            setLevels([...cur.map((l) => ({ ...l })), { ratio, color: levelColor(ratio, cur.length), enabled: true }]);
+        });
+        add.className += ' vela-field-span';
+        add.style.justifySelf = 'start';
+        grid.appendChild(add);
     }
 
     destroy(): void {

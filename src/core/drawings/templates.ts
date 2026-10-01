@@ -1,13 +1,14 @@
-// DRAWING TEMPLATES — TradingView's per-tool "Template" menu: named snapshots of a drawing's
-// cosmetics (style, text styling, type props such as fib levels) that can be re-applied to
-// any drawing of the same type, plus an optional per-type DEFAULT every new drawing of that
-// type starts from. A template never carries geometry (anchors) or typed text content.
+// DRAWING TEMPLATES — per-type named snapshots of a drawing's cosmetics (style, text
+// styling, type props such as fib levels) that can be re-applied to any drawing of the same
+// type, plus an optional per-type DEFAULT every new drawing of that type starts from. A
+// template never carries geometry (anchors) or typed text content.
 //
 // Stored per type under `vela.drawingTemplates.<type>` through a small synchronous storage
-// seam (localStorage by default, swappable via {@link setDrawingTemplateStorage}). Every
-// storage access is wrapped so a missing/blocked/full store degrades to "no templates"
-// instead of throwing; reads are cached so the placement ghost (rebuilt per mouse move)
-// never touches storage.
+// seam. The core stays headless: until a storage is installed ({@link setDrawingTemplateStorage},
+// or {@link ensureDrawingTemplateStorage} from the renderer with the browser's localStorage)
+// templates live in memory only. Every storage access is wrapped so a missing/blocked/full
+// store degrades to "no templates" instead of throwing; reads are cached so the placement
+// ghost (rebuilt per mouse move) never touches storage.
 
 import type { Drawing, DrawingTypeKey } from './Drawing';
 import type { DrawingStyle, DrawingText } from './style';
@@ -43,24 +44,25 @@ export interface DrawingTemplateStorage {
 /** Storage key prefix; one entry per drawing type. */
 export const DRAWING_TEMPLATES_KEY_PREFIX = 'vela.drawingTemplates.';
 
-let storageOverride: DrawingTemplateStorage | null | undefined;
+/** `undefined` = never configured (memory only, and {@link ensureDrawingTemplateStorage} may
+ *  still install one); `null` = persistence explicitly disabled. */
+let installed: DrawingTemplateStorage | null | undefined;
 const cache = new Map<string, TypeTemplates>();
 
-/** Route template persistence to a host store (`null` disables persistence; `undefined`
- *  restores the localStorage default). Clears the read cache. */
+/** Route template persistence to a host store (`null` disables persistence, `undefined`
+ *  un-configures it). Clears the read cache. */
 export function setDrawingTemplateStorage(storage: DrawingTemplateStorage | null | undefined): void {
-    storageOverride = storage;
+    installed = storage;
     cache.clear();
 }
 
+/** Install `storage` only when the host hasn't configured one — the renderer's default. */
+export function ensureDrawingTemplateStorage(storage: DrawingTemplateStorage | null): void {
+    if (installed === undefined) setDrawingTemplateStorage(storage);
+}
+
 function storage(): DrawingTemplateStorage | null {
-    if (storageOverride !== undefined) return storageOverride;
-    try {
-        const ls = (globalThis as { localStorage?: DrawingTemplateStorage }).localStorage;
-        return ls ?? null;
-    } catch {
-        return null; // a sandboxed frame throws on mere access
-    }
+    return installed ?? null;
 }
 
 function load(type: string): TypeTemplates {

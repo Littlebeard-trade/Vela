@@ -4,8 +4,25 @@ All notable changes to Vela, newest first.
 
 ## [Unreleased]
 
+### Added
+
+- **Fib Retracement settings.** The retracement's gear now opens a full settings dialog: a
+  trend line through the swing (color, width, style), level line width and style, extending
+  the levels to the left or right edge of the chart, Reverse, showing the price and the ratio
+  on each level (the ratio as a value or a percentage), where those labels sit (left, center
+  or right; above, on or below the line), a background with adjustable transparency, and one
+  color for every level. Levels can now be added and removed as well as edited.
+- **Drawing templates.** The Template menu at the bottom of a drawing's settings dialog saves
+  the drawing's look under a name, applies or deletes a saved one, saves it as the default
+  that every new drawing of that type starts with, and resets to the factory defaults.
+  Templates never move a drawing; they are kept in the browser.
+
 ### Changed
 
+- **Fib Retracement direction.** A new retracement now puts level 1 at the first point you
+  click and level 0 at the second, and its default levels run from 0 to 4.236. Retracements
+  you already drew keep their direction and their levels. _(Breaking: to get the previous
+  direction on a new retracement, turn on Reverse in its settings.)_
 - **Vela's home is velacharts.dev.** The attribution mark, the package homepage and the
   project links now point to Vela's own site instead of a page on luxalgo.com. Nothing
   changes in the API.

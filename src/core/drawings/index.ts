@@ -64,6 +64,7 @@ export { ArrowMark, ArrowMarkUp, ArrowMarkDown } from './types/ArrowMark';
 export { GlyphStamp, FlagMark, IconStamp, GLYPH_OPTIONS, STAMP_SIZE_OPTIONS } from './types/GlyphStamp';
 export { FibRatios, type FibLevel, type FibTextSize, type FibEntryLine, type FibBand, type FibTrendSegment } from './types/FibRatios';
 export { FibLevels, type FibLevelLine } from './types/FibLevels';
+export { levelColor, cycleColor } from './levelPalette';
 export { FibRetracement, formatFibRatio, type FibRetracementOptions, type FibTrendLineStyle, type FibLabelsH, type FibLabelsV, type FibLevelsFormat } from './types/FibRetracement';
 export { FibExtension } from './types/FibExtension';
 export { FibExtensionTrend } from './types/FibExtensionTrend';
@@ -136,6 +137,7 @@ export { migrate, isValidSerialized, clonePlain, DRAWINGS_DOC_VERSION, type Draw
 export {
     DRAWING_TEMPLATES_KEY_PREFIX,
     setDrawingTemplateStorage,
+    ensureDrawingTemplateStorage,
     templateDataOf,
     applyTemplateData,
     listDrawingTemplates,
