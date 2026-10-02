@@ -5,6 +5,9 @@ import type { SettingsSchema } from '../schema';
 import { LINE_FIELDS } from '../schema';
 import { distToSegment, handleAt } from '../hittest';
 
+/** Text px per named size (mirrors the painter's namedFontSize; core can't import the renderer). */
+const TEXT_PX: Record<string, number> = { tiny: 10, small: 12, normal: 14, large: 18, huge: 28 };
+
 /** One configurable Fibonacci entry — a ratio (or sequence index) with color / enabled / label. */
 export interface FibLevel {
     ratio: number;
@@ -113,7 +116,18 @@ export abstract class FibRatios extends Drawing {
 
     hitTest(px: number, py: number, proj: Projector, tol: number): boolean {
         const lines = this.entryLines(proj);
-        return lines != null && lines.some((l) => distToSegment(px, py, l.x1, l.y1, l.x2, l.y2) <= tol);
+        if (lines == null) return false;
+        if (lines.some((l) => distToSegment(px, py, l.x1, l.y1, l.x2, l.y2) <= tol)) return true;
+        // LB: a level's number / price text and its custom label select the drawing too (TradingView):
+        // with extend off the numbers sit OUTSIDE the line, where a click used to miss
+        const num = TEXT_PX[this.numbersSize] ?? 12, lbl = TEXT_PX[this.labelsSize] ?? 14;
+        const inText = (text: string, x: number, y: number, align: 'left' | 'right' | 'center', size: number) => {
+            if (!text) return false;
+            const w = text.length * size * 0.6, h = size;             // ~average glyph width of UI fonts
+            const x0 = align === 'left' ? x : align === 'right' ? x - w : x - w / 2;
+            return px >= x0 - tol && px <= x0 + w + tol && py >= y - h / 2 - tol / 2 && py <= y + h / 2 + tol / 2;
+        };
+        return lines.some((l) => inText(l.numberText, l.numberX, l.numberY, l.numberAlign, num) || (!!l.label && inText(l.label, l.labelX, l.labelY, 'center', lbl)));
     }
 
     handlePoints(proj: Projector): Array<[number, number]> {
