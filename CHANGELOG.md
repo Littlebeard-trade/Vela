@@ -2,7 +2,7 @@
 
 All notable changes to Vela, newest first.
 
-## [0.8.1]
+## [Unreleased]
 
 ### Added
 
@@ -23,6 +23,11 @@ All notable changes to Vela, newest first.
   click and level 0 at the second, and its default levels run from 0 to 4.236. Retracements
   you already drew keep their direction and their levels. _(Breaking: to get the previous
   direction on a new retracement, turn on Reverse in its settings.)_
+
+## [0.8.1]
+
+### Changed
+
 - **Vela's home is velacharts.dev.** The attribution mark, the package homepage and the
   project links now point to Vela's own site instead of a page on luxalgo.com. Nothing
   changes in the API.
