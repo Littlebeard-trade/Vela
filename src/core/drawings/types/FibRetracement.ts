@@ -235,14 +235,7 @@ export class FibRetracement extends FibLevels implements FibRetracementOptions {
     override hitTest(px: number, py: number, proj: Projector, tol: number): boolean {
         if (super.hitTest(px, py, proj, tol)) return true;
         const t = this.trendSegment(proj);
-        if (t != null && distToSegment(px, py, t.x1, t.y1, t.x2, t.y2) <= tol) return true;
-        // LB: a click anywhere inside the box the visible levels span selects it (TradingView), not
-        // only on a level line; with the background fill on or off
-        const lines = this.levelLines(proj);
-        if (!lines || lines.length < 2) return false;
-        let x1 = Infinity, x2 = -Infinity, y1 = Infinity, y2 = -Infinity;
-        for (const l of lines) { x1 = Math.min(x1, l.x1); x2 = Math.max(x2, l.x2); y1 = Math.min(y1, l.y); y2 = Math.max(y2, l.y); }
-        return px >= x1 - tol && px <= x2 + tol && py >= y1 - tol && py <= y2 + tol;
+        return t != null && distToSegment(px, py, t.x1, t.y1, t.x2, t.y2) <= tol;
     }
 
     // Extended levels reach the pane edge, so the drawing stays visible past its anchors.

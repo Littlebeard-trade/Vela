@@ -87,10 +87,9 @@ describe('drawings/FibRetracement orientation', () => {
     it('keeps bands and hit-testing on the oriented levels', () => {
         const d = make();
         d.applySettings({ 'trendLine.visible': false });
-        // 0.236 → price 76.4 → y 23.6; the levels span y 0 (0) .. 423.6 (4.236). Reversed they would
-        // span y 100 .. -323.6, so a click at y -50 hits only the reversed drawing.
+        // 0.236 → price 76.4 → y 23.6; reversed it would sit at y 76.4.
         expect(d.hitTest(25, 23.6, proj, 1)).toBe(true);
-        expect(d.hitTest(25, -50, proj, 1)).toBe(false);
+        expect(d.hitTest(25, 76.4, proj, 1)).toBe(false);
         const bands = d.fillBands(proj);
         expect(bands[0]!.y).toBeCloseTo(0, 6); // 0 (y 0) → 0.236 (y 23.6)
         expect(bands[0]!.h).toBeCloseTo(23.6, 6);
@@ -239,7 +238,7 @@ describe('drawings/FibRetracement display options', () => {
         expect(d.hitTest(12.5, 75, proj, 2)).toBe(true); // on the diagonal, off every level
         d.applySettings({ 'trendLine.visible': false });
         expect(d.trendSegment(proj)).toBeNull();
-        expect(d.hitTest(12.5, 75, proj, 2)).toBe(true);   // still inside the levels' box (LB)
+        expect(d.hitTest(12.5, 75, proj, 2)).toBe(false);
     });
 
     it('levels can be added and removed (whole-array patch) and persist', () => {
