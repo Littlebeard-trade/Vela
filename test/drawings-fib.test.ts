@@ -30,11 +30,13 @@ describe('drawings/FibRetracement', () => {
         expect(priceAt(1.618)).toBeCloseTo(-61.8, 6);
     });
 
-    it('hit-tests on a level line, not in the gap; reports the full price range', () => {
+    it('hit-tests anywhere inside the levels\' box (LB: TradingView-style), not outside it; reports the full price range', () => {
         const d = make();
         expect(d.hitTest(25, 50, proj, 4)).toBe(true); // the 0.5 level (price 50 → y 50), x 0..50
-        expect(d.hitTest(25, 35, proj, 2)).toBe(false); // between levels
+        expect(d.hitTest(25, 35, proj, 2)).toBe(true); // between levels: inside the box
         expect(d.hitTest(120, 50, proj, 4)).toBe(false); // past the level's right end
+        expect(d.hitTest(25, -20, proj, 2)).toBe(false); // above the 0 level (price 100 → y 0)
+        expect(d.hitTest(25, 450, proj, 2)).toBe(false); // below the 4.236 level (y 423.6)
         const r = d.priceRange()!;
         expect(r.max).toBe(100); // 0 at the second anchor
         expect(r.min).toBeCloseTo(100 - 4.236 * 100, 6); // 4.236 projects past the first anchor
