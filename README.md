@@ -1,3 +1,16 @@
+> **Littlebeard-trade fork, branch `lb`.** LuxAlgo's Vela plus the hooks and features
+> [LB Charts](https://github.com/Littlebeard-trade/lbcharts) needs. Upstream's README follows below.
+>
+> - **Hooks** (`globalThis.__lb*`, read by LB Charts): price-only autoscale (`__lbScalePriceOnly`),
+>   remembered pane heights + tight level labels (`__lbPanes`, `lbTight`), alerts panel
+>   (`__lbAlerts`), instrument name under the watermark (`__lbSymbolName`).
+> - **Fib Retracement like TradingView's**: 1 at the first click, Reverse, trend line, extend,
+>   labels, background, add/remove levels; drawing **templates** (save as / apply / save as default).
+> - **Version** `X.Y.Z-lb.N` (e.g. `0.8.1-lb.1`): never confused with the npm release.
+> - **Updating**: `git tag lb-pre-rebase-<date> lb && git fetch origin && git rebase origin/dev`, run
+>   `npx vitest run` and `npx tsc --noEmit -p .`, bump the `-lb.N` version, then in lbcharts
+>   `./scripts_build_forks.sh`; force-push `lb` here once the app's browser tests pass.
+
 <!-- markdownlint-disable no-inline-html first-line-h1 -->
 
 <div align="center">
