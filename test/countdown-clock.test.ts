@@ -19,11 +19,20 @@ describe('countdownText', () => {
         expect(countdownText(T0, MIN, T0 + 55_000)).toBe('00:05');
     });
 
-    it('reads 00:01 through the last second and disappears once the bar has closed', () => {
+    it('reads 00:01 through the last second, then counts the next bar until it prints', () => {
         expect(countdownText(T0, MIN, T0 + 59_000)).toBe('00:01');
         expect(countdownText(T0, MIN, T0 + 59_999)).toBe('00:01');
-        expect(countdownText(T0, MIN, T0 + MIN)).toBeNull();
-        expect(countdownText(T0, MIN, T0 + MIN + 4_000)).toBeNull(); // the next bar hasn't arrived
+        expect(countdownText(T0, MIN, T0 + MIN)).toBe('01:00');                 // next bar's full minute
+        expect(countdownText(T0, MIN, T0 + MIN + 4_000)).toBe('00:56');         // the next bar hasn't arrived yet
+        expect(countdownText(T0, 5 * MIN, T0 + 7 * MIN + 30_000)).toBe('02:30'); // 5m grid, one bar late
+    });
+
+    it('stops carrying once the chart is stale or the market is shut', () => {
+        expect(countdownText(T0, MIN, T0 + MIN + 14 * MIN + 59_000)).toBe('00:01'); // still inside 15 min
+        expect(countdownText(T0, MIN, T0 + MIN + 15 * MIN)).toBeNull();
+        expect(countdownText(T0, 60 * MIN, T0 + 60 * MIN + 59 * MIN)).toBe('01:00'); // 1h bar: carries one bar
+        expect(countdownText(T0, 60 * MIN, T0 + 120 * MIN)).toBeNull();
+        expect(countdownText(T0, 1440 * MIN, T0 + 1440 * MIN + 1000)).toBeNull();    // daily: never carries
     });
 
     it('shows the full interval at the bar open', () => {

@@ -1,17 +1,27 @@
 /**
  * The countdown-to-bar-close chip's text for a bar opened at `barOpen` on a `barMs`
- * cadence, as seen at wall-clock `now`; `null` once the bar has closed (the chip
- * disappears until the next bar arrives instead of sitting at `00:00`).
+ * cadence, as seen at wall-clock `now`.
+ *
+ * Once that bar has closed and the next one hasn't printed yet (a quiet minute, a feed
+ * that delivers bars late), the chip keeps counting to the NEXT boundary on the same
+ * grid, like TradingView, for up to `CARRY_MS` (15 min) or one bar, whichever is
+ * longer. Past that the chart is stale or the market is shut (weekend, halt), and the
+ * chip is `null` rather than counting against bars that aren't coming. Daily and longer
+ * bars never carry: their boundaries follow the session calendar, not a fixed grid.
  *
  * The remaining time is rounded UP so the chip agrees with a clock that shows whole
  * seconds: at `hh:mm:54.500` the clock reads `:54`, which implies 6 s to the minute,
  * and the chip reads `00:06` — flooring would read `00:05` for that whole second.
  */
+const CARRY_MS = 15 * 60_000;
+const DAY_MS = 86_400_000;
+
 export function countdownText(barOpen: number, barMs: number, now: number): string | null {
     if (!(barMs > 0)) return null;
-    const remaining = barOpen + barMs - now;
-    if (remaining <= 0) return null;
-    return formatCountdown(remaining);
+    const close = barOpen + barMs;
+    if (now < close) return formatCountdown(close - now);
+    if (barMs >= DAY_MS || now - close >= Math.max(CARRY_MS, barMs)) return null;
+    return formatCountdown(barMs - ((now - close) % barMs));
 }
 
 /** `MM:SS` (or `H:MM:SS` past an hour) for the ms remaining until the bar closes, rounded up. */
