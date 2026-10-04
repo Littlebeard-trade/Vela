@@ -3,6 +3,7 @@ import type { OHLCV } from './ohlcv';
 import type { SeriesPoint, SeriesSpec, MarkerPoint } from './series';
 import type { DrawingLine, DrawingBox, DrawingLabel, DrawingPolyline, DrawingLinefill, DrawingTable } from './drawings';
 import type { TradeExecution } from './trades';
+import type { Fill, Background, PriceLine } from './scene';
 
 export interface DirtyRange {
     from: Millis;
@@ -31,7 +32,24 @@ export interface ValuePatch {
      * so a model that once had an anchor would otherwise keep that stale offset.
      */
     anchorTime?: Millis | null;
+    /**
+     * Tail semantics: each series delta carries only the entries at/after `dirty.from`,
+     * and the renderer MERGES them (drop its own entries ≥ `dirty.from`, then append)
+     * instead of replacing the whole array. Merging is idempotent by construction, so a
+     * patch built from the same arrays the renderer aliases still lands correctly.
+     * Absent/false ⇒ the delta arrays are complete and replace wholesale (legacy).
+     */
+    tail?: boolean;
     series: SeriesValueDelta[];
+    /**
+     * Current snapshots of the per-model collections a value patch historically left
+     * stale on live ticks. Replaced wholesale when present (like the drawings below);
+     * absent ≡ unchanged. `barColors` follows IndicatorModel's shape.
+     */
+    fills?: Fill[];
+    backgrounds?: Background[];
+    priceLines?: PriceLine[];
+    barColors?: Array<{ time: Millis; color: string }>;
     /**
      * Full drawing snapshots for this tick. Pine drawing containers are emitted
      * as a small, capped, already-final set each run, so live updates replace

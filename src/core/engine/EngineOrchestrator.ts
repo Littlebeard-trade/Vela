@@ -2680,7 +2680,10 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
             this.renderer.setIndicatorInputs(record.renderHandle, record.inputValues, record.propValues);
             record.pendingStructural = false;
         } else {
-            this.renderer.updateIndicator(record.renderHandle, modelToValuePatch(model));
+            // A live-merged model (engine says nothing changed before `from`) updates the
+            // renderer with a tail patch: O(changed bars), not O(history), per tick.
+            const patch = model.livePatch ? tailModelToValuePatch(model, model.livePatch.from) : modelToValuePatch(model);
+            this.renderer.updateIndicator(record.renderHandle, patch);
         }
         if (record.loading) this.setLoading(record, false);
         this.announce(record, handle);
@@ -2898,7 +2901,7 @@ function blankedModel(model: IndicatorModel): IndicatorModel {
     };
 }
 
-function modelToValuePatch(model: IndicatorModel): ValuePatch {
+export function modelToValuePatch(model: IndicatorModel): ValuePatch {
     const series: SeriesValueDelta[] = [];
     let from = Number.POSITIVE_INFINITY;
     let to = 0;
@@ -2925,6 +2928,58 @@ function modelToValuePatch(model: IndicatorModel): ValuePatch {
         // run's offset, so a re-run that widened to the whole chart could not clear it.
         anchorTime: model.anchorTime ?? null,
         series,
+        // Snapshots (replaced wholesale, like the drawings): without these a live tick
+        // left fills / backgrounds / hlines / barcolors painting the mount-time state.
+        fills: model.fills,
+        backgrounds: model.backgrounds,
+        priceLines: model.priceLines,
+        barColors: model.barColors ?? [],
+        lines: model.lines ?? [],
+        boxes: model.boxes ?? [],
+        labels: model.labels ?? [],
+        polylines: model.polylines ?? [],
+        linefills: model.linefills ?? [],
+        tables: model.tables ?? [],
+        trades: model.trades ?? [],
+    };
+}
+
+/**
+ * Value patch for a live-merged model: only the series entries at/after `from` travel,
+ * with `tail: true` so the renderer merges instead of replacing. Walks each array from
+ * its END (the tail is a bar or two), so building the patch is O(changed), independent
+ * of history depth. Drawings and the snapshot collections are small/capped per the
+ * ValuePatch contract and travel whole, exactly as in the full patch.
+ */
+export function tailModelToValuePatch(model: IndicatorModel, from: number): ValuePatch {
+    const series: SeriesValueDelta[] = [];
+    let to = from;
+    for (const s of model.series) {
+        if (s.kind === 'candle' || s.kind === 'bar') {
+            let i = s.bars.length;
+            while (i > 0 && s.bars[i - 1]!.time >= from) i -= 1;
+            const bars = s.bars.slice(i);
+            series.push({ seriesId: s.id, kind: 'bars', bars });
+            for (const b of bars) if (b.time > to) to = b.time;
+        } else if (isLineLikeSeries(s)) {
+            let i = s.points.length;
+            while (i > 0 && s.points[i - 1]!.time >= from) i -= 1;
+            const points = s.points.slice(i);
+            series.push({ seriesId: s.id, kind: 'points', points });
+            for (const p of points) if (p.time > to) to = p.time;
+        }
+    }
+    return {
+        kind: 'value',
+        indicatorId: model.id,
+        tail: true,
+        dirty: { from, to },
+        anchorTime: model.anchorTime ?? null,
+        series,
+        fills: model.fills,
+        backgrounds: model.backgrounds,
+        priceLines: model.priceLines,
+        barColors: model.barColors ?? [],
         lines: model.lines ?? [],
         boxes: model.boxes ?? [],
         labels: model.labels ?? [],

@@ -92,6 +92,14 @@ export interface IndicatorModel {
      * set by engines that ran over a SUFFIX of the bars (e.g. mid-backfill).
      */
     anchorTime?: Millis;
+    /**
+     * Live-stream hint from an engine that merged a per-tick delta into this model:
+     * every series' points/bars are unchanged BEFORE `from`, so the renderer may be
+     * updated with a tail patch instead of a full-array replace. The model itself is
+     * always COMPLETE (merged) — remounts, legend, inspect and exports read it as-is.
+     * Absent ⇒ treat as an ordinary full model.
+     */
+    livePatch?: { from: Millis };
     series: SeriesSpec[];
     fills: Fill[];
     backgrounds: Background[];
