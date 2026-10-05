@@ -7,6 +7,7 @@ import { closeOpenPopovers, eventDismissedPopover, isPopoverOpen } from '../popo
 import { dialogController, type DialogControllerOptions } from './controller';
 import { DIALOG_CSS, DIALOG_STYLE_ID } from './styles';
 import * as zagDialog from '@zag-js/dialog';
+import { announceSurface } from '../../surface-events';
 
 export interface DialogOptions extends DialogControllerOptions {
     title?: string;
@@ -151,6 +152,8 @@ export class Dialog {
         const mid = String(this.ctrl.props.id);
         this.handle = runMachine(this.ctrl.machine, this.ctrl.props, (service) => {
             const api = this.ctrl.connect(service);
+            // Close announces while the panel still shows (before the close props land), open once it does.
+            if (this.wasOpen && !api.open) this.announce(false);
             spreadProps(this.backdrop, api.getBackdropProps(), mid);
             spreadProps(this.positioner, api.getPositionerProps(), mid);
             spreadProps(this.panel, api.getContentProps(), mid);
@@ -160,6 +163,7 @@ export class Dialog {
             // unlike tooltip/menu) — the view toggles visibility from `api.open` itself.
             this.backdrop.style.display = api.open ? '' : 'none';
             this.positioner.style.display = api.open ? '' : 'none';
+            if (api.open && !this.wasOpen) this.announce(true);
             if (this.wasOpen && !api.open) this.restoreOpener();
             this.wasOpen = api.open;
         });
@@ -174,6 +178,11 @@ export class Dialog {
         const opener = this.opener;
         this.opener = null;
         if (opener?.isConnected) opener.focus({ preventScroll: true });
+    }
+
+    private announce(open: boolean): void {
+        const opener = this.opener === this.panel.ownerDocument.body ? null : this.opener;
+        announceSurface(this.panel, open, 'dialog', opener);
     }
 
     get open(): boolean {
@@ -203,6 +212,11 @@ export class Dialog {
         // instead of leaving them behind.
         if (this.open) this.hide();
         this.handle.stop();
+        // Torn down while open: the stopped machine never projects the close.
+        if (this.wasOpen) {
+            this.wasOpen = false;
+            this.announce(false);
+        }
         this.restoreOpener();
         this.backdrop.remove();
         this.positioner.remove();

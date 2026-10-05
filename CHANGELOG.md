@@ -21,6 +21,11 @@ All notable changes to Vela, newest first.
 
 ### Added
 
+- **Menus and panels tell you when they open and close.** Every menu, popover, dialog,
+  drawer and side panel now raises a `vela:surface-open` event when it appears and a
+  `vela:surface-close` event as it starts to close, while it is still on screen. Both bubble,
+  so one listener on the chart's container can follow all of its chrome, for example to
+  animate a menu out or keep your own UI in step, without watching the page for changes.
 - **Fib retracement has a Reverse option.** The Levels dialog of a Fib retracement now
   has a Reverse toggle that puts level 0 on the first point instead of the second.
 
