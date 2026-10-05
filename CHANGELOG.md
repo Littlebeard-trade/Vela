@@ -2,16 +2,7 @@
 
 All notable changes to Vela, newest first.
 
-## [Unreleased]
-
-### Fixed
-
-- **Dragging the chart keeps up with the mouse on high-resolution displays.** On a 4K or
-  Retina-class screen a drag could repaint only every second or third frame, so the chart
-  trailed the pointer and looked jittery. The native renderer no longer multisamples its
-  geometry canvas: lines were already smoothed in the shader, dot markers and round line
-  ends are now smoothed there too, so the picture is unchanged and a drag now repaints on
-  every frame, including on 120 Hz and 240 Hz displays.
+## [0.8.2]
 
 ### Added
 
@@ -49,6 +40,12 @@ All notable changes to Vela, newest first.
 
 ### Fixed
 
+- **Dragging the chart keeps up with the mouse on high-resolution displays.** On a 4K or
+  Retina-class screen a drag could repaint only every second or third frame, so the chart
+  trailed the pointer and looked jittery. The native renderer no longer multisamples its
+  geometry canvas: lines were already smoothed in the shader, dot markers and round line
+  ends are now smoothed there too, so the picture is unchanged and a drag now repaints on
+  every frame, including on 120 Hz and 240 Hz displays.
 - **"Edit code" on a legend row opens the code the indicator runs now.** After an in-place
   code update, a legend action still received the code the indicator was added with.
 - **Refreshing actions keeps open side panels as they are.** `refreshActions()` rebuilt
