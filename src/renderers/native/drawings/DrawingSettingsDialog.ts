@@ -632,6 +632,17 @@ export class DrawingSettingsDialog {
                 },
             }));
         }
+        if (drawing instanceof FibRetracement) {
+            const fib = drawing;
+            grid.appendChild(fieldRow({
+                label: 'Reverse',
+                bool: true,
+                toggle: {
+                    checked: fib.reverse,
+                    onChange: (v) => actions.patch({ reverse: v }),
+                },
+            }));
+        }
         levels.forEach((lv, i) => {
             const row = document.createElement('div');
             row.className = 'vela-field-span';
