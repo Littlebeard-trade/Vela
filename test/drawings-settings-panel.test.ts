@@ -275,7 +275,7 @@ describe('the drawing settings panel', () => {
         await s.openPanel();
         const cells = s.$$('.vela-dsp-lv-c');
         expect(cells.length).toBe((s.live() as FibRetracement).levels.length);
-        expect(cells.filter((c) => !c.hasAttribute('data-off')).length).toBe(7);
+        expect(cells.filter((c) => !c.hasAttribute('data-off')).length).toBe(11); // LB default: classic + extensions
         expect(getComputedStyle(s.$('.vela-dsp-lv')!).gridTemplateColumns).toContain('repeat(2');
         s.popup.destroy();
     });
@@ -284,7 +284,7 @@ describe('the drawing settings panel', () => {
         const s = setup(make('fibretracement'));
         await s.openPanel();
         const pressed = (): string[] => s.$$('.vela-dsp-seg[aria-label="Level set"] button[aria-pressed="true"]').map((b) => b.textContent ?? '');
-        expect(pressed()).toEqual(['Classic']);
+        expect(pressed()).toEqual([]); // LB's default set is not one of the ready-made sets
 
         s.segButton('Level set', 'OTE').click();
         expect(pressed()).toEqual(['OTE']);

@@ -3,8 +3,8 @@ import type { SerializedDrawing } from '../Drawing';
 import type { SettingsSchema } from '../schema';
 import { FibRatios, type FibEntryLine } from './FibRatios';
 
-/** Which side of the levels their ratio and price text sits on. */
-export type FibLabelSide = 'left' | 'right';
+/** Which side of the levels their ratio and price text sits on (`center` only on the retracement). */
+export type FibLabelSide = 'left' | 'center' | 'right';
 
 /** A resolved (enabled) level in pixels: its price, color, label, and line to stroke. */
 export interface FibLevelLine {
@@ -138,7 +138,7 @@ export abstract class FibLevels extends FibRatios {
         super.readProps(props);
         if (typeof props.showRatios === 'boolean') this.showRatios = props.showRatios;
         if (typeof props.showPrices === 'boolean') this.showPrices = props.showPrices;
-        if (props.labelSide === 'left' || props.labelSide === 'right') this.labelSide = props.labelSide;
+        if (props.labelSide === 'left' || props.labelSide === 'center' || props.labelSide === 'right') this.labelSide = props.labelSide;
         if (typeof props.background === 'boolean') this.background = props.background;
     }
 }

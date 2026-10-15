@@ -556,6 +556,7 @@ export class DrawingSettingsPanel {
                     'Label side',
                     this.seg(b, 'Label side', [
                         { value: 'left', html: 'Left' },
+                        ...(d instanceof FibRetracement ? [{ value: 'center', html: 'Center' }] : []),
                         { value: 'right', html: 'Right' },
                     ], () => fib().labelSide, (v) => b.edit({ labelSide: v })),
                 ),

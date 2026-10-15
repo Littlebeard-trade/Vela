@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createDrawing, deserializeDrawing, DrawingStore, FibLevels, FibRetracement, FibFan, FibTimeZones, type Projector } from '../src/core/drawings';
+import { createDrawing, deserializeDrawing, DrawingStore, FIB_PRESETS, FibLevels, FibRetracement, FibFan, FibTimeZones, type Projector } from '../src/core/drawings';
 
 /** Linear projector: x = time, y = 100 − price, single pane 'price'. */
 function fakeProjector(): Projector {
@@ -16,7 +16,13 @@ function fakeProjector(): Projector {
 describe('drawings/FibRetracement', () => {
     const proj = fakeProjector();
     // anchors (0,0) → (50,100): price range 0..100; level 0 sits on the second anchor (price 100)
-    const make = () => createDrawing('fibretracement', { paneId: 'price', anchors: [{ time: 0, price: 0 }, { time: 50, price: 100 }] })!;
+    // LB's new retracements start with the Full set (classic + extensions to 4.236); these tests are
+    // about the classic geometry, so pin the classic seven.
+    const make = () => {
+        const d = createDrawing('fibretracement', { paneId: 'price', anchors: [{ time: 0, price: 0 }, { time: 50, price: 100 }] })!;
+        d.applySettings({ levels: FIB_PRESETS[0]!.levels.map((l) => ({ ...l })) });
+        return d;
+    };
 
     it('places a horizontal level at each fib ratio, level 0 on the second anchor', () => {
         const d = make();

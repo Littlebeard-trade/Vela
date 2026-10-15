@@ -1,20 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
     createDrawing,
     deserializeDrawing,
     resetDrawingSettings,
     FibRetracement,
-    setDrawingTemplateStorage,
-    ensureDrawingTemplateStorage,
-    saveDrawingTemplate,
-    listDrawingTemplates,
-    applyDrawingTemplate,
-    deleteDrawingTemplate,
-    saveDefaultDrawingTemplate,
-    defaultDrawingTemplate,
-    clearDefaultDrawingTemplate,
-    DRAWING_TEMPLATES_KEY_PREFIX,
-    type DrawingTemplateStorage,
     type Projector,
     type SerializedDrawing,
 } from '../src/core/drawings';
@@ -28,17 +17,6 @@ function fakeProjector(): Projector {
         paneIdAtY: () => 'price',
         width: 200,
         height: 100,
-    };
-}
-
-/** In-memory storage that records what was written. */
-function memoryStorage(): DrawingTemplateStorage & { data: Map<string, string> } {
-    const data = new Map<string, string>();
-    return {
-        data,
-        getItem: (k) => data.get(k) ?? null,
-        setItem: (k, v) => void data.set(k, v),
-        removeItem: (k) => void data.delete(k),
     };
 }
 
@@ -136,9 +114,9 @@ describe('drawings/FibRetracement display options', () => {
     it('new drawings get the default option set', () => {
         const d = make();
         expect(d.trendLine).toEqual({ visible: true, color: '#787b86', width: 1, style: 'dashed' });
-        expect([d.extendLeft, d.extendRight, d.showPrices, d.showLevels, d.levelsFormat]).toEqual([false, false, true, true, 'values']);
-        expect([d.labelsH, d.labelsV]).toEqual(['left', 'middle']);
-        expect([d.fillBackground, d.backgroundTransparency, d.useOneColor]).toEqual([true, 80, false]);
+        expect([!!d.style.extendLeft, !!d.style.extendRight, d.showPrices, d.showRatios, d.levelsFormat]).toEqual([false, false, true, true, 'values']);
+        expect([d.labelSide, d.labelsV]).toEqual(['left', 'middle']);
+        expect([d.background, d.backgroundTransparency, d.useOneColor]).toEqual([true, 80, false]);
     });
 
     it('every option round-trips through serialize', () => {
@@ -149,14 +127,14 @@ describe('drawings/FibRetracement display options', () => {
             'trendLine.color': '#ff0000',
             'trendLine.width': 3,
             'trendLine.style': 'dotted',
-            extendLeft: true,
-            extendRight: true,
+            'style.extendLeft': true,
+            'style.extendRight': true,
             showPrices: false,
-            showLevels: true,
+            showRatios: true,
             levelsFormat: 'percents',
-            labelsH: 'right',
+            labelSide: 'right',
             labelsV: 'bottom',
-            fillBackground: false,
+            background: false,
             backgroundTransparency: 40,
             useOneColor: true,
             oneColor: '#00ff00',
@@ -166,16 +144,16 @@ describe('drawings/FibRetracement display options', () => {
         expect(back.serialize()).toEqual(doc);
         expect(back.reverse).toBe(true);
         expect(back.trendLine).toEqual({ visible: false, color: '#ff0000', width: 3, style: 'dotted' });
-        expect([back.extendLeft, back.extendRight, back.showPrices, back.levelsFormat]).toEqual([true, true, false, 'percents']);
-        expect([back.labelsH, back.labelsV, back.fillBackground, back.backgroundTransparency]).toEqual(['right', 'bottom', false, 40]);
+        expect([back.style.extendLeft, back.style.extendRight, back.showPrices, back.levelsFormat]).toEqual([true, true, false, 'percents']);
+        expect([back.labelSide, back.labelsV, back.background, back.backgroundTransparency]).toEqual(['right', 'bottom', false, 40]);
         expect([back.useOneColor, back.oneColor]).toEqual([true, '#00ff00']);
     });
 
     it('ignores malformed option values in props', () => {
         const doc = make().serialize();
-        doc.props = { ...doc.props, labelsH: 'diagonal', backgroundTransparency: 'x', trendLine: { width: -1, style: 'wavy' } };
+        doc.props = { ...doc.props, labelSide: 'diagonal', backgroundTransparency: 'x', trendLine: { width: -1, style: 'wavy' } };
         const d = deserializeDrawing(doc) as FibRetracement;
-        expect(d.labelsH).toBe('left');
+        expect(d.labelSide).toBe('left');
         expect(d.backgroundTransparency).toBe(80);
         expect(d.trendLine.width).toBe(1);
         expect(d.trendLine.style).toBe('dashed');
@@ -189,7 +167,7 @@ describe('drawings/FibRetracement display options', () => {
         expect(at(0.618)).toBe('61.8% (38.20)');
         d.applySettings({ showPrices: false });
         expect(at(0.618)).toBe('61.8%');
-        d.applySettings({ showLevels: false, showPrices: true });
+        d.applySettings({ showRatios: false, showPrices: true });
         expect(at(0.618)).toBe('38.20');
         d.applySettings({ showPrices: false });
         expect(at(0.618)).toBe('');
@@ -199,22 +177,22 @@ describe('drawings/FibRetracement display options', () => {
         const d = make();
         const first = () => d.entryLines(proj)![0]!; // level 0 at y 0, x 0..50
         expect(first()).toMatchObject({ numberX: -4, numberY: 0, numberAlign: 'right' }); // left/middle → just outside
-        d.applySettings({ labelsH: 'right' });
+        d.applySettings({ labelSide: 'right' });
         expect(first()).toMatchObject({ numberX: 54, numberAlign: 'left' });
         d.applySettings({ labelsV: 'top' });
         expect(first()).toMatchObject({ numberX: 46, numberY: -7, numberAlign: 'right' }); // above → tucked inside
-        d.applySettings({ labelsH: 'center', labelsV: 'bottom' });
+        d.applySettings({ labelSide: 'center', labelsV: 'bottom' });
         expect(first()).toMatchObject({ numberX: 25, numberY: 7, numberAlign: 'center' });
     });
 
     it('extend lines reach the pane edges, widen culling, and drive hit-testing', () => {
         const d = make();
         expect(d.hitTest(150, 50, proj, 2)).toBe(false);
-        d.applySettings({ extendRight: true });
+        d.applySettings({ 'style.extendRight': true });
         expect(d.entryLines(proj)![0]).toMatchObject({ x1: 0, x2: 200 });
         expect(d.hitTest(150, 50, proj, 2)).toBe(true);
         expect(d.timeExtent()).toEqual({ min: 0, max: Number.POSITIVE_INFINITY });
-        d.applySettings({ extendLeft: true });
+        d.applySettings({ 'style.extendLeft': true });
         expect(d.timeExtent()!.min).toBe(Number.NEGATIVE_INFINITY);
         expect(d.fillBands(proj)[0]!.w).toBe(200);
     });
@@ -224,7 +202,7 @@ describe('drawings/FibRetracement display options', () => {
         expect(d.fillBands(proj)[0]!.opacity).toBeCloseTo(0.2, 9);
         d.applySettings({ backgroundTransparency: 50 });
         expect(d.fillBands(proj)[0]!.opacity).toBeCloseTo(0.5, 9);
-        d.applySettings({ fillBackground: false });
+        d.applySettings({ background: false });
         expect(d.fillBands(proj)).toEqual([]);
         d.applySettings({ useOneColor: true, oneColor: '#123456' });
         expect(d.entryLines(proj)!.every((l) => l.color === '#123456')).toBe(true);
@@ -247,93 +225,7 @@ describe('drawings/FibRetracement display options', () => {
         expect(priceAt(d, -0.272)).toBeCloseTo(127.2, 6);
         d.applySettings({ levels: d.levels.filter((l) => l.ratio !== 0.5) });
         const back = deserializeDrawing(d.serialize()) as FibRetracement;
-        expect(back.levels.map((l) => l.ratio)).toEqual([0, 0.236, 0.382, 0.618, 0.786, 1, 1.618, 2.618, 3.618, 4.236, -0.272]);
-    });
-});
-
-describe('drawing templates', () => {
-    afterEach(() => setDrawingTemplateStorage(undefined));
-
-    it('save / list / apply / delete a named template — cosmetics only, never anchors', () => {
-        const store = memoryStorage();
-        setDrawingTemplateStorage(store);
-        const src = make();
-        src.applySettings({ reverse: true, useOneColor: true, oneColor: '#00ff00', 'style.lineWidth': 3, levels: src.levels.slice(0, 3) });
-        expect(saveDrawingTemplate(src, '  Mine  ')!.name).toBe('Mine');
-        expect(listDrawingTemplates('fibretracement').map((t) => t.name)).toEqual(['Mine']);
-        expect(store.data.has(`${DRAWING_TEMPLATES_KEY_PREFIX}fibretracement`)).toBe(true);
-
-        const dst = createDrawing('fibretracement', { paneId: 'price', anchors: [{ time: 5, price: 10 }, { time: 9, price: 20 }] })! as FibRetracement;
-        expect(applyDrawingTemplate(dst, 'Mine')).toBe(true);
-        expect(dst.anchors).toEqual([{ time: 5, price: 10 }, { time: 9, price: 20 }]);
-        expect([dst.reverse, dst.useOneColor, dst.oneColor, dst.style.lineWidth]).toEqual([true, true, '#00ff00', 3]);
-        expect(dst.levels.length).toBe(3);
-        expect(applyDrawingTemplate(dst, 'nope')).toBe(false);
-
-        // Re-reading from storage (fresh cache) sees the same template.
-        setDrawingTemplateStorage(store);
-        expect(listDrawingTemplates('fibretracement')[0]!.props!.oneColor).toBe('#00ff00');
-        expect(deleteDrawingTemplate('fibretracement', 'Mine')).toBe(true);
-        expect(listDrawingTemplates('fibretracement')).toEqual([]);
-        expect(store.data.size).toBe(0);
-    });
-
-    it('a saved default seeds new drawings of its type; factory reset ignores it', () => {
-        setDrawingTemplateStorage(memoryStorage());
-        const src = make();
-        src.applySettings({ labelsH: 'right', 'style.lineStyle': 'dotted', levels: src.levels.slice(0, 2) });
-        saveDefaultDrawingTemplate(src);
-        expect(defaultDrawingTemplate('fibretracement')).toBeDefined();
-
-        const fresh = make();
-        expect(fresh.labelsH).toBe('right');
-        expect(fresh.style.lineStyle).toBe('dotted');
-        expect(fresh.levels.length).toBe(2);
-        expect(fresh.reverse).toBe(false); // the template carries its own (new-default) orientation
-        // An explicit caller override still wins over the template.
-        const over = createDrawing('fibretracement', { paneId: 'price', anchors: ANCHORS, style: { lineColor: '#fff', lineWidth: 1, lineStyle: 'solid' } })!;
-        expect(over.style.lineStyle).toBe('solid');
-        // Other types are unaffected.
-        expect(createDrawing('fibextension', { paneId: 'price', anchors: ANCHORS })!.style.lineStyle).toBe('solid');
-        // Persisted drawings are restored as saved, not re-templated.
-        const restored = deserializeDrawing(legacyDoc()) as FibRetracement;
-        expect(restored.labelsH).toBe('left');
-
-        resetDrawingSettings(fresh);
-        expect(fresh.labelsH).toBe('left');
-        expect(fresh.levels.length).toBe(11);
-
-        clearDefaultDrawingTemplate('fibretracement');
-        expect(make().labelsH).toBe('left');
-    });
-
-    it('degrades silently on a missing, corrupt, or throwing store', () => {
-        setDrawingTemplateStorage(null);
-        expect(saveDrawingTemplate(make(), 'mem')).not.toBeNull(); // memory only
-        expect(listDrawingTemplates('fibretracement').length).toBe(1);
-
-        const corrupt = memoryStorage();
-        corrupt.data.set(`${DRAWING_TEMPLATES_KEY_PREFIX}fibretracement`, '{not json');
-        setDrawingTemplateStorage(corrupt);
-        expect(listDrawingTemplates('fibretracement')).toEqual([]);
-        expect(make().levels.length).toBe(11);
-
-        const boom: DrawingTemplateStorage = {
-            getItem: () => { throw new Error('denied'); },
-            setItem: () => { throw new Error('quota'); },
-            removeItem: () => { throw new Error('denied'); },
-        };
-        setDrawingTemplateStorage(boom);
-        expect(() => saveDefaultDrawingTemplate(make())).not.toThrow();
-        expect(() => make()).not.toThrow();
-    });
-
-    it('ensureDrawingTemplateStorage never replaces a host-installed store', () => {
-        const host = memoryStorage();
-        setDrawingTemplateStorage(host);
-        ensureDrawingTemplateStorage(memoryStorage());
-        saveDrawingTemplate(make(), 'x');
-        expect(host.data.size).toBe(1);
+        expect(back.levels.filter((l) => l.enabled).map((l) => l.ratio)).toEqual([0, 0.236, 0.382, 0.618, 0.786, 1, 1.618, 2.618, 3.618, 4.236, -0.272]);
     });
 });
 
@@ -345,5 +237,36 @@ describe('drawings/FibRetracement label hit area (LB)', () => {
         expect(half.numberAlign).toBe('right');                    // the text sits left of the line start
         expect(d.hitTest(half.numberX - 15, half.numberY, proj2, 2)).toBe(true);   // on its text
         expect(d.hitTest(half.numberX - 400, half.numberY, proj2, 2)).toBe(false); // far left of it
+    });
+});
+
+describe('drawings/FibRetracement saved by the LB fork (pre-merge key names)', () => {
+    it('maps showLevels / fillBackground / labelsH / extendLeft / extendRight onto the merged names', () => {
+        const doc = make().serialize();
+        doc.props = {
+            levels: doc.props!.levels,
+            reverse: false,
+            trendLine: { visible: true, color: '#112233', width: 2, style: 'dotted' },
+            extendLeft: true,
+            extendRight: false,
+            showPrices: false,
+            showLevels: true,
+            levelsFormat: 'percents',
+            labelsH: 'center',
+            labelsV: 'bottom',
+            fillBackground: false,
+            backgroundTransparency: 35,
+            useOneColor: true,
+            oneColor: '#0a0b0c',
+        };
+        const { extendLeft: _l, extendRight: _r, ...style } = doc.style;
+        doc.style = style;
+        const d = deserializeDrawing(doc) as FibRetracement;
+        expect([d.style.extendLeft, d.style.extendRight]).toEqual([true, false]);
+        expect([d.showRatios, d.showPrices, d.levelsFormat]).toEqual([true, false, 'percents']);
+        expect([d.labelSide, d.labelsV, d.background, d.backgroundTransparency]).toEqual(['center', 'bottom', false, 35]);
+        expect([d.useOneColor, d.oneColor, d.trendLine.color, d.trendLine.style]).toEqual([true, '#0a0b0c', '#112233', 'dotted']);
+        // and it re-saves under the merged names, reading back identically
+        expect((deserializeDrawing(d.serialize()) as FibRetracement).serialize()).toEqual(d.serialize());
     });
 });

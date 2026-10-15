@@ -38,8 +38,12 @@ describe('ready-made fib level sets', () => {
         expect(FIB_PRESETS.map((p) => p.label)).toEqual(['Classic', 'Extension', 'OTE']);
     });
 
-    it('a new retracement starts on Classic: the standard pullback levels from the swing high', () => {
+    it('a new retracement starts on the LB default: the classic pullbacks plus extensions to 4.236 (no ready-made set highlighted)', () => {
         const d = fib();
+        expect(matchFibPreset(d.levels, d.reverse)).toBeNull();
+        expect(d.levels.filter((l) => l.enabled).map((l) => l.ratio)).toEqual([0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.618, 2.618, 3.618, 4.236]);
+        // choosing Classic gives upstream's standard seven
+        d.applySettings({ levels: FIB_PRESETS[0]!.levels.map((l) => ({ ...l })) });
         expect(matchFibPreset(d.levels, d.reverse)).toBe('classic');
         expect(d.levels.filter((l) => l.enabled).map((l) => l.ratio)).toEqual([0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]);
         expect(priceOf(d, 0)).toBe(150);
@@ -113,7 +117,8 @@ describe('how fib levels show', () => {
 
     it('the level text can sit on the right end of the levels', () => {
         const d = fib();
-        d.applySettings({ labelSide: 'right' });
+        // (LB: a vertically centred label sits just outside the line end; 'top' tucks it inside)
+        d.applySettings({ labelSide: 'right', labelsV: 'top' });
         const l = d.entryLines(proj)![0]!;
         expect(l.numberAlign).toBe('right');
         expect(l.numberX).toBe(150 - 4);

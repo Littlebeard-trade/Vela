@@ -1,8 +1,6 @@
 import { Drawing, type DrawingTypeKey, type SerializedDrawing } from './Drawing';
 import type { DrawingStyle } from './style';
 import { DEFAULT_DRAWING_COLOR } from './style';
-import { defaultDrawingTemplate } from './templates';
-import { clonePlain } from './document';
 import { svg24 } from '../icons';
 import { ACCENT, BEARISH, BULLISH, INFO, MARKER, NEUTRAL, WARNING } from '../palette';
 import { TrendLine } from './types/TrendLine';
@@ -117,27 +115,15 @@ export function drawingTypes(): DrawingTypeMeta[] {
     return [...REGISTRY.values()];
 }
 
-/**
- * Build a fresh drawing of `type` on `paneId`, seeding the type's default style — and, unless
- * `opts.template` is false, the user's saved default template for the type (see
- * `templates.ts`), layered between the factory defaults and the caller's own overrides.
- */
-export function createDrawing(
-    type: DrawingTypeKey,
-    init: Partial<SerializedDrawing> & { paneId: string },
-    opts: { template?: boolean } = {},
-): Drawing | null {
+/** Build a fresh drawing of `type` on `paneId`, seeding the type's default style. */
+export function createDrawing(type: DrawingTypeKey, init: Partial<SerializedDrawing> & { paneId: string }): Drawing | null {
     const meta = REGISTRY.get(type);
     if (!meta) return null;
-    const tpl = opts.template === false ? undefined : defaultDrawingTemplate(type);
     // Merge any caller style onto the type's default so a partial override keeps the
     // rest (e.g. a box keeps its default fill when only the line color is set), and an
     // absent/undefined style doesn't clobber the default.
-    const style = { ...meta.defaultStyle, ...(tpl?.style ?? {}), ...(init.style ?? {}) };
-    const props = tpl?.props ? { ...clonePlain(tpl.props), ...(init.props ?? {}) } : init.props;
-    const d = meta.create({ ...init, style, ...(props !== undefined ? { props } : {}) });
-    if (tpl?.text && !init.text) d.text = { ...clonePlain(tpl.text), value: d.text?.value ?? '' };
-    return d;
+    const style = { ...meta.defaultStyle, ...(init.style ?? {}) };
+    return meta.create({ ...init, style });
 }
 
 /**
@@ -146,7 +132,7 @@ export function createDrawing(
  * text content (`text.value`) when the type seeds a text block.
  */
 export function resetDrawingSettings(drawing: Drawing): void {
-    const fresh = createDrawing(drawing.type, { paneId: drawing.paneId }, { template: false });
+    const fresh = createDrawing(drawing.type, { paneId: drawing.paneId });
     if (!fresh) return;
     drawing.style = { ...fresh.style };
     const keptValue = drawing.text?.value;
