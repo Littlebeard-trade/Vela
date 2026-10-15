@@ -212,7 +212,7 @@ export class FibRetracement extends FibLevels {
         return {
             fields: [
                 ...base.fields,
-                { path: 'trendLine.visible', label: 'Trend line', kind: 'boolean', group: 'line' },
+                { path: 'trendLine.visible', label: 'Show trend line', kind: 'boolean', group: 'line' },
                 { path: 'trendLine.color', label: 'Trend line color', kind: 'color', group: 'line', when: { path: 'trendLine.visible', in: [true] } },
                 { path: 'trendLine.style', label: 'Trend line style', kind: 'lineStyle', options: LINE_STYLE_OPTIONS, group: 'line', when: { path: 'trendLine.visible', in: [true] } },
                 { path: 'trendLine.width', label: 'Trend line width', kind: 'number', min: 1, max: 10, step: 1, group: 'line', when: { path: 'trendLine.visible', in: [true] } },
