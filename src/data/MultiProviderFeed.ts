@@ -13,16 +13,6 @@ import { BarStore, sharedBarStore } from './BarStore';
 /** Retry cadence while a subscription's symbol is still unresolvable (index settling). */
 const RESOLVE_RETRY_MS = 500;
 
-/** Bar duration in ms for a timeframe (Pine resolution code or `1h`-style) — offline tick cadence. */
-function intervalMs(timeframe: string): number {
-    const map: Record<string, number> = {
-        '1m': 60_000, '3m': 180_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000,
-        '1h': 3_600_000, '2h': 7_200_000, '4h': 14_400_000, '1d': 86_400_000, '1w': 604_800_000, '1M': 2_592_000_000,
-        '1': 60_000, '5': 300_000, '15': 900_000, '30': 1_800_000, '60': 3_600_000, '240': 14_400_000, D: 86_400_000, W: 604_800_000, M: 2_592_000_000,
-    };
-    return map[timeframe] ?? 3_600_000;
-}
-
 /**
  * The default `MarketDataFeed`: a router over a registry of named `DataProvider`s.
  * It parses every symbol (`name:SYMBOL` / bare `SYMBOL`), resolves a provider,
@@ -39,8 +29,6 @@ export class MultiProviderFeed implements MarketDataFeed {
     private readonly cache: CachingDataFeed;
     /** The chart symbol's resolved provider — the default for bare secondary symbols. */
     private primaryProvider: string | null = null;
-    /** A copy of offline history, used to synthesize ticks for the `data` path. */
-    private liveBars: OHLCV[] = [];
     /** Sync-accessible symbol metadata, warmed by load()/symbolInfoFor (the engine reads it synchronously). */
     private readonly symInfoCache = new Map<string, { info: SymbolInfo; at: number }>();
     /** Requests in flight, keyed like the cache — every concurrent asker shares one round trip. */
@@ -173,10 +161,7 @@ export class MultiProviderFeed implements MarketDataFeed {
     // ── MarketDataFeed ─────────────────────────────────────────────────────
 
     async load(cfg: MarketConfig): Promise<OHLCV[]> {
-        if (cfg.data && cfg.data.length > 0) {
-            this.liveBars = cfg.data.map((b) => ({ ...b }));
-            return cfg.data;
-        }
+        if (cfg.data && cfg.data.length > 0) return cfg.data;
         const resolved = await this.registry.whenResolvable(rawSymbol(cfg), { default: this.primaryProvider });
         // The chart's provider FOLLOWS its market: after a switch to another venue, bare
         // secondary symbols and the metadata/capability probes must default to the venue now on
@@ -190,10 +175,7 @@ export class MultiProviderFeed implements MarketDataFeed {
 
     /** Progressive twin of {@link load} — same resolution, the cache streams the batches. */
     async loadProgressive(cfg: MarketConfig, onBatch: (bars: OHLCV[]) => void, opts?: { signal?: AbortSignal }): Promise<OHLCV[] | null> {
-        if (cfg.data && cfg.data.length > 0) {
-            this.liveBars = cfg.data.map((b) => ({ ...b }));
-            return cfg.data;
-        }
+        if (cfg.data && cfg.data.length > 0) return cfg.data;
         const resolved = await this.registry.whenResolvable(rawSymbol(cfg), { default: this.primaryProvider });
         this.primaryProvider = resolved.provider;
         this.prefetchSymbolInfo(resolved);
@@ -226,37 +208,13 @@ export class MultiProviderFeed implements MarketDataFeed {
         return this.cache.loadRange(canonical(cfg, resolved), range);
     }
 
+    /** Offline `data` has no source of ticks: the caller's bars are shown exactly as given,
+     *  and live updates need a registered provider that implements `subscribe`. */
     subscribe(cfg: MarketConfig, onBar: (bar: OHLCV) => void): Unsubscribe {
-        if (cfg.data && cfg.data.length > 0) return this.synthesizeTicks(cfg, onBar);
+        if (cfg.data && cfg.data.length > 0) return () => {};
         const resolved = this.registry.resolve(rawSymbol(cfg), { default: this.primaryProvider });
         if (!resolved) return () => {};
         return this.cache.subscribe(canonical(cfg, resolved), onBar);
-    }
-
-    /**
-     * Synthesize price-relative ticks for offline `data` runs (no network), so the
-     * forming-candle path is exercised at any price scale. Mirrors the bundled
-     * provider feed's offline behavior.
-     */
-    private synthesizeTicks(cfg: MarketConfig, onBar: (bar: OHLCV) => void): Unsubscribe {
-        if (this.liveBars.length === 0) return () => {};
-        const step = intervalMs(cfg.timeframe ?? '60');
-        const timer = setInterval(() => {
-            const bars = this.liveBars;
-            const forming = bars[bars.length - 1];
-            if (!forming) return;
-            const jitter = forming.close * 0.0015 * (Math.random() - 0.5) * 2; // ±0.15% of price
-            const close = Math.max(0, forming.close + jitter);
-            const updated: OHLCV = { ...forming, close, high: Math.max(forming.high, close), low: Math.min(forming.low, close) };
-            bars[bars.length - 1] = updated;
-            onBar(updated);
-            if (Math.random() < 0.12) {
-                const next: OHLCV = { time: updated.time + step, open: updated.close, high: updated.close, low: updated.close, close: updated.close, volume: 0 };
-                bars.push(next);
-                onBar(next);
-            }
-        }, 1000);
-        return () => clearInterval(timer);
     }
 }
 

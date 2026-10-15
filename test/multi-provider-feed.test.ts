@@ -499,20 +499,20 @@ describe('MultiProviderFeed — unregister, secondary series, symbolInfo, resili
         warn.mockRestore();
     });
 
-    it('synthesizes offline ticks and stops cleanly on unsubscribe', async () => {
+    it('never invents ticks for offline data: the caller\'s bars stay exactly as given', async () => {
         vi.useFakeTimers();
         try {
             const feed = new MultiProviderFeed(new BarStore());
             const data = makeBars(5);
-            await feed.load({ data });
+            const snapshot = structuredClone(data);
+            const loaded = await feed.load({ data });
             let ticks = 0;
             const stop = feed.subscribe({ data, timeframe: '60' }, () => { ticks += 1; });
-            await vi.advanceTimersByTimeAsync(1100);
-            expect(ticks).toBeGreaterThan(0);
-            stop();
-            const after = ticks;
-            await vi.advanceTimersByTimeAsync(3000);
-            expect(ticks).toBe(after); // unsubscribe fully detached
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(ticks).toBe(0);
+            expect(data).toEqual(snapshot);
+            expect(loaded).toEqual(snapshot);
+            expect(() => stop()).not.toThrow();
         } finally {
             vi.useRealTimers();
         }

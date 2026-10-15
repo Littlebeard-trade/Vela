@@ -45,6 +45,7 @@ function recordingCtx() {
         translate() {},
         rotate() {},
         fillText() {},
+        strokeText() {},
         measureText: () => ({ width: 0 }),
     };
     return { ctx: ctx as unknown as CanvasRenderingContext2D, arcs: () => arcs, lines: () => lines };
@@ -240,6 +241,25 @@ describe('DrawingPainter trendline label follows the line', () => {
         expect(angles[0]).toBeCloseTo(-Math.PI / 4);
     });
 
+    it("keeps the label readable where a line crosses it with a halo in the chart's background", () => {
+        const d = createDrawing('trendline', {
+            id: 't',
+            paneId: 'price',
+            anchors: [
+                { time: 0, price: 0 },
+                { time: 50, price: 50 },
+            ],
+            text: { value: 'zone', size: 'normal', hAlign: 'center', vAlign: 'top' },
+        })!;
+        const { ctx } = recordingCtx();
+        const halos: string[] = [];
+        (ctx as unknown as Record<string, unknown>).strokeText = function (this: CanvasRenderingContext2D) {
+            halos.push(String(this.strokeStyle));
+        };
+        new DrawingPainter().paintAll(ctx, [d], fakeProjector(), { ...theme, background: '#101010' } as VelaTheme);
+        expect(halos).toEqual(['#101010']);
+    });
+
     it('does not rotate a flat text annotation', () => {
         const d = createDrawing('text', {
             id: 'a',
@@ -254,5 +274,90 @@ describe('DrawingPainter trendline label follows the line', () => {
         };
         new DrawingPainter().paintAll(ctx, [d], fakeProjector(), theme);
         expect(rotated).toBe(0);
+    });
+});
+
+
+describe('DrawingPainter ArrowMark label layout', () => {
+    function textPositionRecordingCtx() {
+        const base = recordingCtx();
+        const calls: Array<{
+            text: string;
+            x: number;
+            y: number;
+            align: CanvasTextAlign;
+        }> = [];
+        const ctx = base.ctx as unknown as Record<string, unknown>;
+
+        ctx.fillText = (text: string, x: number, y: number) => {
+            calls.push({
+                text,
+                x,
+                y,
+                align: ctx.textAlign as CanvasTextAlign,
+            });
+        };
+
+        return { ctx: base.ctx, calls: () => calls };
+    }
+
+    const arrow = (type: 'arrowmarkup' | 'arrowmarkdown', value = '23') =>
+        createDrawing(type, {
+            id: type,
+            paneId: 'price',
+            anchors: [{ time: 10, price: 50 }],
+            text: { value, size: 'normal', hAlign: 'left', vAlign: 'top' },
+        })!;
+
+    it('centers an up-arrow label below the glyph', () => {
+        const { ctx, calls } = textPositionRecordingCtx();
+
+        new DrawingPainter().paintAll(ctx, [arrow('arrowmarkup')], fakeProjector(), theme);
+
+        expect(calls()).toEqual([
+            { text: '23', x: 10, y: 76, align: 'center' },
+        ]);
+    });
+
+    it('centers a down-arrow label above the glyph', () => {
+        const { ctx, calls } = textPositionRecordingCtx();
+
+        new DrawingPainter().paintAll(ctx, [arrow('arrowmarkdown')], fakeProjector(), theme);
+
+        expect(calls()).toHaveLength(1);
+
+        const label = calls()[0]!;
+        expect(label).toMatchObject({
+            text: '23',
+            x: 10,
+            align: 'center',
+        });
+
+        expect(label.y).toBeLessThan(24);
+    });
+
+    it('keeps multiline down-arrow labels above the glyph', () => {
+        const { ctx, calls } = textPositionRecordingCtx();
+
+        new DrawingPainter().paintAll(
+            ctx,
+            [arrow('arrowmarkdown', 'First line\nSecond line')],
+            fakeProjector(),
+            theme,
+        );
+
+        expect(calls()).toHaveLength(2);
+        expect(calls().map(({ text }) => text)).toEqual([
+            'First line',
+            'Second line',
+        ]);
+
+        for (const label of calls()) {
+            expect(label.x).toBe(10);
+            expect(label.align).toBe('center');
+            expect(label.y).toBeLessThan(24);
+        }
+
+        expect(calls()[1]!.y).toBeGreaterThan(calls()[0]!.y);
     });
 });

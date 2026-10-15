@@ -1,6 +1,6 @@
 # Examples
 
-Two runnable examples ship with Vela™, plus an interactive playground. **Both examples use offline OHLCV** — no network, no API key — so they run anywhere out of the box.
+These snippets cover the two ways to run Vela™: **static**, over offline OHLCV you pass as `data` — no network, no API key, so it runs anywhere out of the box — and **live**, over a provider-backed market.
 
 > These snippets import from the npm package `@luxalgo/vela` (see [installation.md](./installation.md)).
 
@@ -24,7 +24,7 @@ With offline `data`, `timeframe` only drives bar spacing and axis labels; there 
 
 ## A fully-featured setup
 
-Everything in one place — a provider-backed, live chart with a custom theme, the GPU backend, drawing tools, a scripting indicator, runtime tweaks, and events. Swap `provider`/`symbol` for `data: myBars` to run the same thing offline (minus the live feed).
+Everything in one place — a provider-backed, live chart with a custom theme, the GPU backend, drawing tools, a scripting indicator, runtime tweaks, and events. Swap `symbol` for `data: myBars` to run the same thing offline (minus the live feed).
 
 **Construct** with the full option set:
 
@@ -45,9 +45,8 @@ const theme = {
 };
 
 const chart = new Vela('#chart', {
-  // market — provider-backed (use `data: myBars` instead to run offline)
-  provider: 'binance',
-  symbol: 'BTCUSDT',
+  // market — provider-backed; the `binance:` prefix pins the venue (use `data: myBars` instead to run offline)
+  symbol: 'binance:BTCUSDT',
   timeframe: '1h',
   bars: 1000,
   live: true,
@@ -118,14 +117,14 @@ const png = chart.renderer.screenshot(); // PNG data URL, or null if unsupported
 
 Every option above is documented in [options.md](./options.md); every method and event in [api-reference.md](./api-reference.md).
 
-## The two examples
+## Static or live
 
-| Example | What it shows |
+| Mode | What it shows |
 |---|---|
-| **Static** | History only: candles plus several indicators (EMA, MACD, RSI, bands with fills/markers/bgcolor) over offline bars. |
-| **Live** | The same setup with a forming candle and indicators recomputing on each (locally synthesized) tick. |
+| **Static** | History only: candles plus indicators over the offline bars you pass as `data`. Nothing moves after the first paint. |
+| **Live** | A provider-backed `symbol` with `live: true`: the forming candle updates on each real tick, a new candle appends when the interval rolls over, and indicators recompute. Observe ticks with `chart.on('bar', …)`. |
 
-> **The only meaningful difference between them is the `live` flag.** The static example passes `live: false`; the live example passes `live: true` and listens on `chart.on('bar', …)` to count ticks. Same data path, same engine registration, same `addIndicator` calls.
+> **Bars you pass as `data` never move on their own**, even with `live: true` — Vela shows them exactly as given. To stream real updates onto your own bars, register a [data provider](./data-providers.md) that implements `subscribe`, and load its symbol instead of passing `data`.
 
 ## Adding drawings from code
 

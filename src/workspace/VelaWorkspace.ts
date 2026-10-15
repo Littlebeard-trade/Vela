@@ -53,8 +53,8 @@ import { timeframeToMs } from '../data/timeframe';
 import { timeframeLabel } from '../widget/timeframe';
 import { registerBuiltinChartTypes } from '../chart-types/builtins';
 import { parseSymbol } from '../data/ProviderRegistry';
-import { syncTargets, rangesWithin, styleConfigSlice, SYNC_KINDS, type SyncKind, type SyncOptions, type SyncSetting } from './sync';
-import { encodeState, decodeState, sanitizeState, type WorkspaceState, type WorkspaceStorage } from './persist';
+import { syncTargets, rangesWithin, styleConfigPatch, SYNC_KINDS, type SyncKind, type SyncOptions, type SyncSetting } from './sync';
+import { encodeState, decodeState, sanitizeState, type DrawingToolsState, type WorkspaceState, type WorkspaceStorage } from './persist';
 import { localStorageAdapter } from '../widget/persist';
 import { ChartCell, seedDefaults, cellChartDefaults, type CellSeed, type CellBoot, type PooledCellState } from './ChartCell';
 import { buildContext, type WorkspaceWidgetContext } from './context';
@@ -68,6 +68,7 @@ import {
     ensureLayout,
     layoutForGrid,
     layoutShape,
+    layoutGlyph,
     occupancyGrid,
     type LayoutDefinition,
     type TrackSizes,
@@ -135,6 +136,15 @@ export interface WorkspaceEventMap extends Record<string, unknown> {
      * change included.
      */
     'script:run': WorkspaceScriptRun;
+    /**
+     * One cell's price style is switching `from` → `to` — the per-chart
+     * `priceStyle:change` relayed up with the cell's identity, so one subscription
+     * covers the whole grid, cells added by a later layout change included. Only the
+     * cell whose style changes emits. Same timing as the chart event: synchronous,
+     * before that cell repaints, so `ws.cell(id).priceStyle` and the cell's canvas
+     * still show `from` while the listener runs.
+     */
+    'cell:priceStyle': { id: string; from: string; to: string };
     /** The grid switched layouts (cells created/destroyed/restored around it). */
     'layout:changed': { layout: string };
     /** A cell was maximized over the whole grid, or the grid restored (`id: null`). */
@@ -318,6 +328,12 @@ export class VelaWorkspace {
     private historyUnsub: (() => void) | null = null;
     /** Favorite drawing tools — a WORKSPACE preference (one star set, every cell). */
     private favs: string[] = [];
+    /** Every drawing tool's remembered settings — a SHARED pref, mirrored onto every cell. */
+    private toolDefs: Record<string, unknown> = {};
+    /** Every drawing tool's saved looks — a SHARED pref like the remembered settings. */
+    private toolTemplates: Record<string, unknown> = {};
+    /** Re-entrancy guard while one cell's remembered settings fan out to the others. */
+    private toolDefsBusy = false;
     /** Favorite timeframes — the shared topbar's quick-switch chips, one set for the grid. */
     private tfFavs: string[] = [];
     /** Live sync configuration (mutable copy of the option). */
@@ -436,6 +452,7 @@ export class VelaWorkspace {
         this.timezone = boot?.timezone ?? opts.timezone ?? 'Etc/UTC';
         if (boot?.favorites) this.favs = [...boot.favorites];
         if (boot?.timeframeFavorites) this.tfFavs = [...boot.timeframeFavorites];
+        if (boot?.drawingTools) this.adoptDrawingTools(boot.drawingTools);
         const sync = boot?.sync ?? opts.sync;
         for (const kind of SYNC_KINDS) this.applySyncSetting(kind, sync?.[kind]);
         // Single-chart mode pins the grid to '1' — a persisted document's layout is
@@ -556,6 +573,7 @@ export class VelaWorkspace {
                     const kind = id as SyncKind;
                     this.sync.set(kind, this.syncOpts[kind] ? false : true);
                 },
+                glyph: () => layoutGlyph(this.def),
             },
             getContext: () => this.context(),
         });
@@ -966,6 +984,8 @@ export class VelaWorkspace {
         if (this.activeId) state.activeCellId = this.activeId;
         if (this.favs.length > 0) state.favorites = [...this.favs];
         if (this.tfFavs.length > 0) state.timeframeFavorites = [...this.tfFavs];
+        const tools = this.drawingToolsState();
+        if (tools) state.drawingTools = tools;
         if (this.trackSizes.size > 0) state.trackSizes = Object.fromEntries([...this.trackSizes].map(([k, v]) => [k, { ...v }]));
         const panels = this.dock.getState();
         if (panels) state.panels = panels;
@@ -1004,6 +1024,7 @@ export class VelaWorkspace {
         const st = sanitizeState(state);
         if (!st) return;
         if (st.favorites) this.favs = [...st.favorites]; // newborn cells inherit below (buildCells)
+        if (st.drawingTools) this.adoptDrawingTools(st.drawingTools); // ditto; the active cell takes the magnet/stay mirrors
         if (st.timeframeFavorites) {
             this.tfFavs = [...st.timeframeFavorites];
             this.topbar.setTimeframeFavorites(this.tfFavs);
@@ -1029,6 +1050,7 @@ export class VelaWorkspace {
             if (st.favorites) {
                 for (const cell of this.cellsById.values()) cell.chart.drawings.setFavorites(this.favs as never[]);
             }
+            if (st.drawingTools) this.pushToolDefaults(null);
             this.drawingLinks.clear(); // restored drawings carry new ids — old links are stale
             // Restored slots differ legitimately — with the style link on, an unguarded
             // rehydrate would smear each cell's restored config over its peers.
@@ -1175,7 +1197,7 @@ export class VelaWorkspace {
         const keep = new Set(this.order.slice(0, next.cells.length));
         // Identities live BEFORE the switch — cells that survive or round-trip through
         // the pool carry their own (already converged) state; only genuinely NEW slots
-        // need the style alignment below.
+        // need the style and drawings alignment below.
         const preexisting = new Set(this.cellsById.keys());
         for (const [id, cell] of [...this.cellsById]) {
             if (!keep.has(id) || rebuildAll) {
@@ -1190,6 +1212,7 @@ export class VelaWorkspace {
         this.applyGrid();
         this.buildCells();
         this.alignNewCellStyles(preexisting);
+        this.alignNewCellDrawings(preexisting);
         this.syncCellPresentation();
         this.refreshCellControls(); // the maximize gate follows the cell count
         this.topbar.setLayout(next.id);
@@ -1393,6 +1416,40 @@ export class VelaWorkspace {
      *  stole it) so chart/drawing shortcuts keep working. */
     private refocusActive(): void {
         if (this.activeId) this.cellsById.get(this.activeId)?.chart.renderer.focus();
+    }
+
+    /** Take a document's drawing-tool prefs as the shared mirrors (cells pick them up as they
+     *  are built, or from {@link pushToolDefaults} / the active-cell projection). */
+    private adoptDrawingTools(tools: DrawingToolsState): void {
+        if (tools.defaults) this.toolDefs = { ...tools.defaults };
+        if (tools.templates) this.toolTemplates = { ...tools.templates };
+        if (tools.magnet) this.globalSnap = tools.magnet;
+        if (tools.stay !== undefined) this.globalStay = tools.stay;
+    }
+
+    /** Mirror the shared remembered settings onto every cell but `from` (the cell they came from).
+     *  Receiving them is not an edit: the cells' `drawing:defaults` echoes are ignored. */
+    private pushToolDefaults(from: ChartCell | null, cells: Iterable<ChartCell> = this.cellsById.values()): void {
+        this.toolDefsBusy = true;
+        try {
+            for (const other of cells) {
+                if (other === from) continue;
+                other.chart.drawings.setToolDefaults(this.toolDefs);
+                other.chart.drawings.setToolTemplates(this.toolTemplates);
+            }
+        } finally {
+            this.toolDefsBusy = false;
+        }
+    }
+
+    /** The drawing-tool prefs worth saving; null when every one is at its default. */
+    private drawingToolsState(): DrawingToolsState | null {
+        const out: DrawingToolsState = {};
+        if (Object.keys(this.toolDefs).length > 0) out.defaults = { ...this.toolDefs };
+        if (Object.keys(this.toolTemplates).length > 0) out.templates = { ...this.toolTemplates } as Record<string, unknown[]>;
+        if (this.globalSnap !== 'off') out.magnet = this.globalSnap;
+        if (this.globalStay) out.stay = true;
+        return Object.keys(out).length > 0 ? out : null;
     }
 
     /** Debounced dirty mark: one `state:changed` (+ one storage write in persist mode)
@@ -1647,6 +1704,9 @@ export class VelaWorkspace {
             // The shared star set is a workspace pref — every newborn cell inherits it
             // silently (equal-set idempotence keeps the favorites event from echoing).
             if (this.favs.length > 0) cell.chart.drawings.setFavorites(this.favs as never[]);
+            // Same for the tools' remembered settings: a new chart's first trend line looks
+            // like the last one drawn anywhere in the workspace.
+            if (Object.keys(this.toolDefs).length > 0 || Object.keys(this.toolTemplates).length > 0) this.pushToolDefaults(null, [cell]);
             // The indicator ledger: a restored cell re-adds ITS recorded set (held until
             // the manifest resolves); a fresh cell seeds the manifest's enabled entries.
             cell.setManifest(this.manifest, pooled?.indicators == null);
@@ -1673,6 +1733,7 @@ export class VelaWorkspace {
         // workspace covers a grid whose cells come and go. Each cell runs its own engine
         // session, so the `cell` field is what tells two identical scripts apart.
         chart.on('script:run', (run) => this.events.emit('script:run', { ...run, cell: cell.id }));
+        chart.on('priceStyle:change', ({ from, to }) => this.events.emit('cell:priceStyle', { id: cell.id, from, to }));
         chart.on('alert', (alert) => {
             // Provenance the way a user reads it — symbol, timeframe, and the indicator
             // that fired — captured at fire time (the cell may switch markets later).
@@ -1695,6 +1756,20 @@ export class VelaWorkspace {
                 if (other !== cell) other.chart.drawings.setFavorites(favorites as never[]);
             }
             this.drawToolbar?.setFavorites(favorites as never[]);
+            this.markStateDirty();
+        });
+        // The tools' remembered settings are a WORKSPACE preference too: styling a drawing in
+        // any cell becomes the default for that tool on every cell, and `getState()` keeps it.
+        chart.on('drawing:defaults', () => {
+            if (this.toolDefsBusy) return;
+            this.toolDefs = chart.drawings.toolDefaults() as Record<string, unknown>;
+            this.pushToolDefaults(cell);
+            this.markStateDirty();
+        });
+        chart.on('drawing:templates', () => {
+            if (this.toolDefsBusy) return;
+            this.toolTemplates = chart.drawings.toolTemplates() as Record<string, unknown>;
+            this.pushToolDefaults(cell);
             this.markStateDirty();
         });
         // Crosshair sync: mirror THIS cell's pointer time onto its same-group followers
@@ -1731,13 +1806,17 @@ export class VelaWorkspace {
         });
         chart.on('drawing:snap', ({ mode }) => {
             if (cell.id !== this.activeId) return;
+            const changed = mode !== this.globalSnap;
             this.globalSnap = mode;
             this.drawToolbar?.setMagnetMode(mode);
+            if (changed) this.markStateDirty();
         });
         chart.on('drawing:stay', ({ on }) => {
             if (cell.id !== this.activeId) return;
+            const changed = on !== this.globalStay;
             this.globalStay = on;
             this.drawToolbar?.setStayMode(on);
+            if (changed) this.markStateDirty();
         });
         chart.on('drawing:mode', ({ mode }) => {
             if (cell.id !== this.activeId) return;
@@ -1747,7 +1826,7 @@ export class VelaWorkspace {
         // Viewport sync: every applied pan/zoom/fit propagates to the same-group cells.
         chart.on('viewport:changed', (range) => this.propagateViewport(cell.id, range));
         // Style sync: any committed config edit (settings dialog, applyConfig) mirrors
-        // this cell's Canvas + Scales-and-lines slice onto its same-group followers.
+        // this cell's style-link slice onto its same-group followers.
         chart.renderer.onConfigChanged(() => this.propagateStylePrefs(cell.id));
         // A theme picked in ONE cell (its settings dialog's Canvas → Theme) re-skins the
         // WHOLE workspace — shared chrome plus every other cell.
@@ -1835,12 +1914,67 @@ export class VelaWorkspace {
     }
 
     /**
-     * Mirror an origin cell's presentation — the Canvas + Scales-and-lines slice of
-     * its renderer config plus its Status line tab prefs — onto its same-group
-     * followers (the style link). Loop-safe two ways: the busy guard eats the
-     * followers' SYNCHRONOUS echoes (their `applyConfig` re-fires `onConfigChanged`
-     * in the same tick), and the equality short-circuits leave already-converged
-     * followers untouched, so nothing re-emits once the group agrees.
+     * Bring cells minted by a layout change into their drawings group: with the link
+     * on, a NEW cell (fresh slot, or one returning from the pool that missed edits
+     * while dormant) receives the drawings of a pre-existing group peer — the active
+     * cell when it is one. A drawing the arriving cell already holds a linked copy of
+     * is refreshed in place; any other is copied and linked like a freshly synced
+     * drawing, so later edits and removals follow both ways. The arrival is the cell's
+     * starting state, not an edit: it stays out of the cell's undo timeline, and the
+     * busy guard keeps the copies' own events from fanning back out.
+     */
+    private alignNewCellDrawings(preexisting: ReadonlySet<string>): void {
+        const setting = this.syncOpts.drawings;
+        if (!setting) return;
+        const ids = [...this.cellsById.keys()];
+        for (const id of ids) {
+            if (preexisting.has(id)) continue;
+            const cell = this.cellsById.get(id);
+            if (!cell?.chart.drawings.supported) continue;
+            const peers = syncTargets(id, setting, ids).filter((p) => preexisting.has(p));
+            if (peers.length === 0) continue; // an unlinked or all-new group has no source to inherit
+            const sourceId = this.activeId && peers.includes(this.activeId) ? this.activeId : peers[0]!;
+            const source = this.cellsById.get(sourceId);
+            if (!source) continue;
+            const drawings = cell.chart.drawings;
+            this.drawingSyncBusy = true;
+            try {
+                cell.history.silently(() => {
+                    const held = new Set(drawings.all().map((d) => d.id));
+                    for (const doc of source.chart.drawings.all()) {
+                        const group = this.drawingLinks.get(`${sourceId}\u0000${doc.id}`) ?? new Map([[sourceId, doc.id]]);
+                        const peerId = group.get(id);
+                        if (peerId != null && held.has(peerId)) {
+                            drawings.update(peerId, { anchors: doc.anchors, style: doc.style, text: doc.text, props: doc.props });
+                            continue;
+                        }
+                        const copy = drawings.add(doc.type, {
+                            paneId: doc.paneId,
+                            anchors: doc.anchors,
+                            style: doc.style,
+                            text: doc.text,
+                            props: doc.props,
+                            zIndex: doc.zIndex,
+                        });
+                        if (!copy) continue;
+                        if (peerId != null) this.drawingLinks.delete(`${id}\u0000${peerId}`);
+                        group.set(id, copy.id);
+                        for (const [cellId, dId] of group) this.drawingLinks.set(`${cellId}\u0000${dId}`, group);
+                    }
+                });
+            } finally {
+                this.drawingSyncBusy = false;
+            }
+        }
+    }
+
+    /**
+     * Mirror an origin cell's presentation — the style-link slice of its renderer
+     * config ({@link styleConfigPatch}) plus its Status line and watermark prefs —
+     * onto its same-group followers (the style link). Loop-safe two ways: the busy
+     * guard eats the followers' SYNCHRONOUS echoes (their `applyConfig` re-fires
+     * `onConfigChanged` in the same tick), and the equality short-circuits leave
+     * already-converged followers untouched, so nothing re-emits once the group agrees.
      */
     private propagateStylePrefs(originId: string): void {
         if (this.styleSyncBusy || this.destroyed) return;
@@ -1848,18 +1982,16 @@ export class VelaWorkspace {
         if (targets.length === 0) return;
         const origin = this.cellsById.get(originId);
         if (!origin) return;
-        // A renderer without the config port yields no slice — the status prefs still mirror.
-        const slice = styleConfigSlice(origin.chart.renderer.getConfig());
-        const sliceJson = slice ? JSON.stringify(slice) : null;
+        // A renderer without the config port yields no patch — the cell prefs still mirror.
+        const config = origin.chart.renderer.getConfig();
         const prefs = origin.statusPrefs();
         this.styleSyncBusy = true;
         try {
             for (const id of targets) {
                 const cell = this.cellsById.get(id);
                 if (!cell) continue;
-                if (slice && sliceJson !== JSON.stringify(styleConfigSlice(cell.chart.renderer.getConfig()))) {
-                    cell.chart.renderer.applyConfig(slice);
-                }
+                const patch = styleConfigPatch(config, cell.chart.renderer.getConfig());
+                if (patch) cell.chart.renderer.applyConfig(patch);
                 cell.applyStatusPrefs(prefs);
             }
         } finally {
@@ -2208,6 +2340,7 @@ export class VelaWorkspace {
                     const kind = id as SyncKind;
                     this.sync.set(kind, this.syncOpts[kind] ? false : true);
                 },
+                glyph: () => layoutGlyph(this.def),
             },
             onOpenChange: (open) => this.trackDialog(open),
         });

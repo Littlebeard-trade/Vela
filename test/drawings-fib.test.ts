@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createDrawing, deserializeDrawing, DrawingStore, FibLevels, FibFan, FibTimeZones, type Projector } from '../src/core/drawings';
+import { createDrawing, deserializeDrawing, DrawingStore, FibLevels, FibRetracement, FibFan, FibTimeZones, type Projector } from '../src/core/drawings';
 
 /** Linear projector: x = time, y = 100 − price, single pane 'price'. */
 function fakeProjector(): Projector {
@@ -15,19 +15,57 @@ function fakeProjector(): Projector {
 
 describe('drawings/FibRetracement', () => {
     const proj = fakeProjector();
-    // anchors (0,0) → (50,100): price range 0..100, so a level's price = ratio·100
+    // anchors (0,0) → (50,100): price range 0..100; level 0 sits on the second anchor (price 100)
     const make = () => createDrawing('fibretracement', { paneId: 'price', anchors: [{ time: 0, price: 0 }, { time: 50, price: 100 }] })!;
 
-    it('places a horizontal level at each fib ratio of the price range (1 at the first anchor, 0 at the second)', () => {
+    it('places a horizontal level at each fib ratio, level 0 on the second anchor', () => {
         const d = make();
         expect(d.anchorSchema().min).toBe(2);
         const lines = (d as FibLevels).levelLines(proj)!;
         const priceAt = (ratio: number) => lines.find((l) => l.ratio === ratio)?.price;
-        expect(priceAt(1)).toBe(0); // first click (price 0)
-        expect(priceAt(0)).toBe(100); // second click (price 100)
+        expect(priceAt(0)).toBe(100);
         expect(priceAt(0.5)).toBe(50);
         expect(priceAt(0.618)).toBeCloseTo(38.2, 6);
-        expect(priceAt(1.618)).toBeCloseTo(-61.8, 6);
+        expect(priceAt(1)).toBe(0);
+    });
+
+    it('reverse puts level 0 on the first anchor', () => {
+        const d = make();
+        d.applySettings({ reverse: true });
+        const lines = (d as FibLevels).levelLines(proj)!;
+        const priceAt = (ratio: number) => lines.find((l) => l.ratio === ratio)?.price;
+        expect(priceAt(0)).toBe(0);
+        expect(priceAt(0.618)).toBeCloseTo(61.8, 6);
+        expect(priceAt(1)).toBe(100);
+        expect(d.priceRange()).toEqual({ min: 0, max: 100 });
+    });
+
+    it('reverse round-trips through serialize and applies through store.update', () => {
+        const d = make();
+        expect(d.serialize().props!.reverse).toBe(false);
+        d.applySettings({ reverse: true });
+        const doc = d.serialize();
+        expect(doc.props!.reverse).toBe(true);
+        expect((deserializeDrawing(doc) as FibRetracement).reverse).toBe(true);
+
+        const store = new DrawingStore();
+        const live = store.add(createDrawing('fibretracement', { id: store.nextId(), paneId: 'price', anchors: [{ time: 0, price: 0 }, { time: 1, price: 100 }] })!);
+        store.update(live.id, { props: { ...live.serialize().props, reverse: true } });
+        expect((live as FibRetracement).reverse).toBe(true);
+    });
+
+    it('a document saved before the flag existed keeps level 0 on the first anchor', () => {
+        const doc = make().serialize();
+        delete doc.props!.reverse;
+        const old = deserializeDrawing(doc) as FibRetracement;
+        expect(old.reverse).toBe(true);
+        expect(old.levelLines(proj)!.find((l) => l.ratio === 0)?.price).toBe(0);
+    });
+
+    it('does not change the extension tool, which still measures from the first anchor', () => {
+        const d = createDrawing('fibextension', { paneId: 'price', anchors: [{ time: 0, price: 0 }, { time: 50, price: 100 }] })!;
+        expect((d as FibLevels).levelLines(proj)!.find((l) => l.ratio === 0)?.price).toBe(0);
+        expect(d.serialize().props!.reverse).toBeUndefined();
     });
 
     it('hit-tests on a level line, not in the gap; reports the full price range', () => {
@@ -35,9 +73,7 @@ describe('drawings/FibRetracement', () => {
         expect(d.hitTest(25, 50, proj, 4)).toBe(true); // the 0.5 level (price 50 → y 50), x 0..50
         expect(d.hitTest(25, 35, proj, 2)).toBe(false); // between levels
         expect(d.hitTest(120, 50, proj, 4)).toBe(false); // past the level's right end
-        const r = d.priceRange()!;
-        expect(r.max).toBe(100); // 0 at the second anchor
-        expect(r.min).toBeCloseTo(100 - 4.236 * 100, 6); // 4.236 projects past the first anchor
+        expect(d.priceRange()).toEqual({ min: 0, max: 100 });
     });
 
     it('round-trips through serialize', () => {
@@ -46,15 +82,16 @@ describe('drawings/FibRetracement', () => {
         expect(a.type).toBe('fibretracement');
     });
 
-    it('exposes editable levels; disabling one drops it from the rendered lines', () => {
+    it('exposes editable levels — the classic seven on, the rest of the ladder off; disabling one drops it from the rendered lines', () => {
         const d = make();
         const levels = d.editableLevels()!;
-        expect(levels.map((l) => l.ratio)).toEqual([0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.618, 2.618, 3.618, 4.236]);
+        expect(levels.filter((l) => l.enabled).map((l) => l.ratio)).toEqual([0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]);
+        expect(levels.length).toBeGreaterThan(20);
         const i = levels.findIndex((l) => l.ratio === 0.5);
         d.applySettings({ [`levels.${i}.enabled`]: false }); // toggle the 0.5 level off
         const lines = (d as FibLevels).levelLines(proj)!;
         expect(lines.some((l) => l.ratio === 0.5)).toBe(false);
-        expect(lines.length).toBe(10);
+        expect(lines.length).toBe(6);
     });
 
     it('per-level color + label round-trip through serialize (props)', () => {

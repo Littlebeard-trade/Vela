@@ -56,4 +56,4 @@ Vela™ is built around swappable **layers**. The core is small; you opt into th
 
 For your first run, use **offline data**: pass an array of bars via the `data` option.
 No network, no API key, fully reproducible. See [quickstart.md](./quickstart.md), then
-[examples.md](./examples.md) for runnable offline static and live examples.
+[examples.md](./examples.md) for static and live setups.

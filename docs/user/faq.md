@@ -19,11 +19,11 @@ Yes — pass your own bars via the `data` option. No network call, no key, nothi
 new Vela('#chart', { data: myBars, timeframe: '1h' });
 ```
 
-`data` and provider fetch are mutually exclusive. With offline `data`, `timeframe` is still used for bar spacing and axis labels; `provider`/`symbol`/`bars` are ignored. This is the recommended path for first runs, demos, and tests. See [examples.md](./examples.md).
+`data` and provider fetch are mutually exclusive. With offline `data`, `timeframe` is still used for bar spacing and axis labels; `symbol`/`bars` are ignored. This is the recommended path for first runs, demos, and tests. See [examples.md](./examples.md).
 
 ## How does live mode work?
 
-Set `live: true`. On top of the loaded history, the chart subscribes to ticks: the forming (last) candle updates in place, and a new bar is appended when the interval rolls over. Indicators recompute as bars change, and you can observe ticks with `chart.on('bar', …)`. The forming bar is never cached as closed history. With offline `data`, the live example synthesizes ticks locally — still no network.
+Set `live: true`. On top of the loaded history, the chart subscribes to ticks: the forming (last) candle updates in place, and a new bar is appended when the interval rolls over. Indicators recompute as bars change, and you can observe ticks with `chart.on('bar', …)`. The forming bar is never cached as closed history. Live updates come from a data provider: bars you pass as `data` have no source of ticks, so they stay exactly as given even with `live: true`. To stream real updates onto your own bars, register a [data provider](./data-providers.md) that implements `subscribe`.
 
 ## How do I turn off caching?
 

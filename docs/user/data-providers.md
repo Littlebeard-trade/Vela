@@ -133,5 +133,5 @@ Implement the `DataProvider` interface and register it under any name — see [A
 ## See also
 
 - [Adding a data provider](../contributing/adding-a-data-provider.md) — implement your own.
-- [Options](./options.md) — `symbol` / `timeframe` / `bars` / `provider` and the rest.
+- [Options](./options.md) — `symbol` / `timeframe` / `bars` and the rest.
 - [Renderer features](./renderer-features.md) — the `chart.renderer` sibling surface.

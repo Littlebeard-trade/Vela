@@ -2,7 +2,55 @@
 
 All notable changes to Vela, newest first.
 
-## [Unreleased]
+## [0.8.4]
+
+### Added
+
+- **Drawing tools remember their settings.** Each tool now starts its next drawing from the
+  last one you styled: colors, widths, text styling and the tool's own settings, such as a Fib's
+  levels or a position's account size. Styling several drawings at once counts too. A
+  workspace or widget saves these settings in its state document, along with the magnet and
+  stay-in-drawing-mode, and shares them across every chart in the grid, so they survive a
+  reload. Read and restore the set with `chart.drawings.toolDefaults()` and
+  `setToolDefaults()`, follow changes on `drawing:defaults`, and send a tool back to its
+  factory look with `resetToolDefaults()`.
+- **A full settings panel for every drawing.** The gear on a drawing's toolbar, or a
+  double-click on the drawing, opens one panel with all of the tool's settings: its look, its own
+  options, its label, the price and time of each point, and the timeframes it shows on. Options
+  appear only when they apply, sections fold to a one-line summary, and Cancel puts the drawing
+  back as it was. The chart stays usable behind the panel.
+- **Styles for every tool.** Save a drawing's look as a named style and apply it to any drawing
+  of that tool in one click, with a live preview on hover. Line and area tools come with
+  ready-made styles. Styles are kept with the other tool settings; read and restore them with
+  `chart.drawings.toolTemplates()` and `setToolTemplates()`.
+- **Drawings can show on chosen timeframes.** Limit a drawing to intraday charts, to 1H and up,
+  or to any set of timeframes; other charts hide it. The limit is saved with the drawing as
+  `showOn`.
+- **Trend lines extend.** A trend line can run on past either point to the edge of the chart,
+  and its label can sit at the start, middle or end of the line, above or below it.
+- **Fib level sets.** The Fib retracement offers Classic, Extension and OTE level sets. Classic
+  shows the standard pullback ratios; Extension measures from the swing's start and projects
+  targets past its end; OTE marks the 0.62–0.79 entry zone with equilibrium at 0.5 and targets
+  beyond the swing. Every set keeps the whole ladder of levels, the unused ones switched off.
+  Retracement and extension levels can also run on to the chart's edge, show their ratio, their
+  price, both or neither, on the left or the right, and drop the tinted background between them.
+- **Price action tools.** A new Price Action section in the Fibonacci flyout holds three tools,
+  each placed with one click on a candle: **Fair Value Gap**, **Order Block** and **Liquidity**.
+  Each finds its zone or level on the candles and runs right until the event you choose (tested,
+  half-filled, filled, broken or swept), then marks it. A filled gap can flip once price closes
+  through it, and a broken order block can carry on as a breaker. In the settings panel, an option
+  that only matters in some modes appears only in them.
+
+### Changed
+
+- **One settings button.** The drawing toolbar's separate Levels, Position size and Settings
+  buttons are now a single Settings button that opens the full panel for every tool.
+- **Levels in a grid.** Fibs, Gann tools and Mach figures list every level in a two-column grid
+  of on/off, ratio and color. A new retracement or extension carries a longer ladder of levels,
+  with the familiar ones on. Level labels set before still show, but are no longer edited in the
+  panel.
+- **Labels stay readable over lines.** A drawing's label now carries a thin outline in the chart's
+  background color, so a line running through it no longer hides the words.
 
 ### Added
 
@@ -25,9 +73,114 @@ All notable changes to Vela, newest first.
   direction on a new retracement, turn on Reverse in its settings.)_
 ### Fixed
 
+- **Arrow mark labels no longer cover the arrow.** Text on an Arrow Mark Up now sits
+  centered below the arrow, and text on an Arrow Mark Down sits centered above it, instead
+  of starting at the arrow's tip.
+- **The trend angle's degree readout no longer sits on its line.** On a rising line the
+  readout moved above the baseline, where the line runs, so the line crossed the digits.
+  It now sits on the side of the baseline the line leaves empty, with a halo that keeps it
+  legible over candles.
+- **Per-bar candle colors stay on their candles as an indicator updates.** The colors a
+  `plotcandle()` or `plotbar()` series sets for each bar were applied only when the
+  indicator was added. Later recalculations, such as each live tick, replaced the candles but
+  kept the old colors: a color change on an existing bar never showed, colors could land on
+  the wrong candles, and new candles kept the default up/down colors. Every recalculation now
+  repaints the candles with the colors it sets, and one that sets none clears the old ones.
+- **Your own candles are never moved by `live: true`.** A chart given its bars through
+  `data` with `live: true` used to nudge the last candle by up to 0.15% every second and
+  append made-up candles, so real data showed price movement that never happened. Bars
+  passed as `data` are now shown exactly as given. To stream real updates onto your own
+  bars, register a data provider that implements `subscribe`.
+
+## [0.8.3]
+
+### Added
+
+- **Custom price-axis ticks.** The new `priceAxis.ticks` option lets you supply the
+  price-axis ladder yourself, for example denser minor levels or emphasized round numbers.
+  It is called for each pane with the visible range, the pane height and the axis mode,
+  along with the default ticks to build on, and the axis labels and horizontal gridlines
+  both follow what it returns. A tick can be marked major, for a semibold label, or minor,
+  for a muted one. Change or clear it at runtime with
+  `chart.renderer.set('priceAxisTicks', fn)`; returning nothing keeps the default ticks.
+- **The veiled side of a bar pick can be styled.** While a `crosshairOverride` veils the
+  bars after the picked one, the chart places an element with the class `vela-shade-right`
+  over exactly that area, under the crosshair and above the candles. Style it with CSS, for
+  example `backdrop-filter: grayscale(1)` to turn those bars grey. It changes nothing until
+  you style it.
+- **Bar picks leave drawings alone.** While your interaction asks the user to pick a point
+  on the chart, `chart.renderer.set('drawingsInteractive', false)` keeps the pointer away
+  from the drawings: a press on a drawing, or with a drawing tool selected, pans or clicks
+  as on an empty chart and reaches `onClick`, so no drawing is selected, moved, placed or
+  erased by accident. The drawings stay on screen, and `true` restores them. The setting
+  is never saved with the chart.
+- **Right-click actions know where you clicked.** An action added to a chart's right-click
+  menu now receives `ctx.pointer` in its `when` and `run`: the price under the pointer (an
+  indicator value on a study pane), the time of the bar under it and the kind of pane, as
+  they were when the menu opened. In a multi-chart workspace it describes the chart you
+  right-clicked, so a Copy price row no longer has to follow every chart's crosshair. The
+  built-in rows of the chart menu now show icons (a row without one keeps its label in line
+  with theirs), and added rows sort together with them by their `order`: the built-in rows
+  sit at fixed ranks, published as `CONTEXT_MENU_BUILTIN_ORDER`, so an action without an
+  `order` lands after the built-in actions and `order: -100` puts it at the top.
+- **Menus, panels and dialogs can animate out with plain CSS.** As a menu, popover, dialog,
+  drawer, side panel, the layout picker or a drawing toolbar flyout closes, it now carries a
+  `data-closing` attribute and stays on screen, ignoring clicks, until the exit animation or
+  transition your stylesheet gives that attribute has played (one second at most). Reopening
+  it meanwhile brings it straight back. Without such a rule nothing changes and surfaces close
+  at once, as before.
+- **Know when a chart's style is about to change.** A chart now raises a
+  `priceStyle:change` event just before it repaints in a new style, whichever way the style
+  was changed: the style menu, the chart settings, a template, a restored state or your own
+  code. The chart still shows the old style while your listener runs, so you can capture
+  that frame and animate the switch. A `VelaWorkspace` reports the same switch as
+  `cell:priceStyle`, naming the one chart that changed.
+
+### Changed
+
+- **Settings… is now the last row of the right-click menus.** In the chart, price-axis and
+  time-axis menus, the settings entry moves below the rows that plugins add instead of
+  sitting above them. An action that should come after it can ask for an `order` above 1000.
+- **The layout button draws your grid, and dropdown icons sit in badges.** In a
+  multi-chart workspace, the topbar's layout button now draws the arrangement on screen,
+  including uneven ones such as one large chart beside two small ones, and updates with
+  every layout change. Icons in the chart-style dropdown, the drawing tool menus, and the
+  chart's right-click menu now sit in small rounded tiles that brighten on hover, and the
+  selected entry's tile is filled. The drawing tool menus share the drawing toolbar's
+  background and open a little apart from it, like the topbar dropdowns, and the layout
+  dropdown matches the other topbar dropdowns in color and in its distance from the bar.
+  Your own menus can use the same tiles with the `iconBadges` menu option.
+- **Style sync covers every chart look.** In a multi-chart workspace, the **Style** link
+  now also mirrors the settings dialog's Symbol tab: candle body, border and wick colors,
+  the bar, line, area and baseline styles, bar spacing and the animation switches. It also
+  carries the Canvas tab's margins, the session shading colors and the watermark toggles.
+  A candle-based chart type added by a plugin shares its candle colors too, while its own
+  settings stay with each chart. The chart type itself stays individual, so a candle chart
+  and a line chart keep their types and share their colors.
+
+### Fixed
+
+- **Events and indicator values stay off the price scale.** A timeline mark on a bar at
+  the chart's right edge, which happens often on a narrow screen or after scrolling back in
+  time, is now cut at the price scale like the candle beneath it instead of being drawn over
+  the scale's labels. An indicator legend row too long for a narrow chart now ends before
+  the price scale: its values are cut short with an ellipsis, and a title that does not fit
+  even on its own is shortened the same way.
+- **Synced drawings reach the charts a layout change adds.** With drawings sync on,
+  switching to a layout with more charts now copies the drawings already on the active
+  chart onto the new ones. The copies are linked like any synced drawing, so moving,
+  restyling or deleting any of them follows on the others, and they add no steps to the
+  new chart's undo history. A chart that comes back after a smaller layout hid it catches
+  up on the edits made in the meantime instead of showing stale copies.
 - **A flat price pane no longer freezes the tab.** When every bar in a pane sits on the
   same price except for a rounding-error sliver (for example an EMA converging on a flat
   value), the price axis now renders without ticks instead of hanging the tab.
+- **Drawing settings keep your edits when you reopen them.** Reopening the Levels dialog
+  of a Fibonacci tool from the same drawing toolbar now shows every change you made
+  earlier, instead of putting some levels back to older values. Cancel in a reopened
+  Levels, position-size or volume-profile dialog now only undoes what you changed since it
+  opened, rather than earlier edits too. The label field of a drawing likewise reopens with
+  the full text you typed.
 
 ## [0.8.2]
 
