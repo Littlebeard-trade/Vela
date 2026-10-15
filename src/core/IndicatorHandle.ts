@@ -40,6 +40,9 @@ export interface IndicatorHandle {
     readonly props: readonly InputSchema[];
     /** Whether the indicator is currently shown (vs hidden). Hidden indicators stop computing. */
     readonly visible: boolean;
+    /** Whether this indicator prints its price-scale series' latest values as chips on the
+     *  price axis (the per-indicator "values in price scale" toggle). Off by default. */
+    readonly scaleValue: boolean;
     /** The CURRENT stored input values (declaration defaults merged with every edit so
      *  far) — what state persistence diffs against the schema's `defval`s. */
     inputValues(): Record<string, InputValue>;
@@ -79,6 +82,13 @@ export interface IndicatorHandle {
      * hidden indicator consumes no resources. Showing re-runs it over the current bars.
      */
     setVisible(visible: boolean): void;
+    /**
+     * Turn the price-axis value chips on or off for this indicator: each price-scale
+     * series then prints its latest value as a colored label on the price axis (like the
+     * candle's last-price tag). Pure display state — no recompute, no suspend. Series
+     * taken off the price scale are skipped.
+     */
+    setScaleValue(on: boolean): void;
     /**
      * Move (or merge) this indicator to another pane: the main price pane (`'price'`),
      * an existing pane (`{ pane: id }`), or a fresh pane (`{ newPane: {...} }`, optionally

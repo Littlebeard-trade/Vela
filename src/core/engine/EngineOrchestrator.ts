@@ -246,6 +246,8 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         this.renderer.onRemoveIndicator((id) => this.removeIndicator(id));
         // The renderer's in-chart legend eye reports a hide/show here → suspend/resume the indicator.
         this.renderer.onToggleIndicatorVisible?.((id, visible) => this.setVisible(id, visible));
+        // The legend row menu reports the price-axis value toggle here → flip the display flag.
+        this.renderer.onToggleIndicatorScaleValue?.((id, on) => this.setScaleValue(id, on));
         // Pane hover buttons + double-clicks report layout intents here (delete tears down the
         // pane's indicators; the rest are already applied by the renderer — this keeps the
         // `chart.panes` view + collapse/maximize mirror in sync).
@@ -2099,6 +2101,22 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         this.events.emit('indicator:visibility', { id, visible });
     }
 
+    /**
+     * IndicatorController: turn the indicator's price-axis value chips on or off. Pure
+     * display state — no recompute, no suspend; the chrome layer reads the flag off the
+     * scene. The record holds the truth so {@link placeModel} can re-stamp it onto every
+     * remounted model (input edits, live patches); the renderer gets it directly too, so
+     * a toggle on a live indicator repaints at once.
+     */
+    setScaleValue(id: string, on: boolean): void {
+        const record = this.registry.get(id);
+        if (!record || (record.scaleValue === true) === on) return;
+        record.scaleValue = on;
+        if (record.model) record.model.scaleValue = on;
+        this.handles.get(id)?.setScaleValueState(on);
+        if (record.renderHandle) this.renderer.setIndicatorScaleValue?.(record.renderHandle, on);
+    }
+
     ready(): Promise<void> {
         return this.readyPromise;
     }
@@ -2826,6 +2844,9 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
     private placeModel(model: IndicatorModel, id: string, paneId: string): void {
         model.id = id;
         model.paneId = paneId;
+        // The price-axis value toggle is record-owned display state; re-stamp it onto every
+        // (re)mounted model so the chrome layer keeps drawing the chips across recomputes.
+        if (this.registry.get(id)?.scaleValue === true) model.scaleValue = true;
         // A `force_overlay` item (overlay: true) renders on the price pane regardless of
         // where its indicator routed — stamp it 'price' so the model tells the truth.
         const paneOf = (item: { overlay?: boolean }): string => (item.overlay === true ? 'price' : paneId);

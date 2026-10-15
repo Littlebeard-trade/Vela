@@ -14,6 +14,7 @@ export interface IndicatorController {
     updateCode(id: string, source: string): Promise<CodeUpdateResult>;
     removeIndicator(id: string): void;
     setVisible(id: string, visible: boolean): void;
+    setScaleValue(id: string, on: boolean): void;
     moveIndicator(id: string, target: MoveTarget): void;
 }
 
@@ -29,6 +30,7 @@ export class IndicatorHandleImpl implements IndicatorHandle {
     private schema: InputSchema[] = [];
     private propsSchema: InputSchema[] = [];
     private visibleState = true;
+    private scaleValueState = false;
     private readonly bus = new TypedEventBus<IndicatorEventMap>();
 
     constructor(
@@ -54,6 +56,10 @@ export class IndicatorHandleImpl implements IndicatorHandle {
 
     get visible(): boolean {
         return this.visibleState;
+    }
+
+    get scaleValue(): boolean {
+        return this.scaleValueState;
     }
 
     inputValues(): Record<string, InputValue> {
@@ -86,6 +92,10 @@ export class IndicatorHandleImpl implements IndicatorHandle {
 
     setVisible(visible: boolean): void {
         this.controller.setVisible(this.id, visible);
+    }
+
+    setScaleValue(on: boolean): void {
+        this.controller.setScaleValue(this.id, on);
     }
 
     moveTo(target: MoveTarget): void {
@@ -121,6 +131,11 @@ export class IndicatorHandleImpl implements IndicatorHandle {
     /** Sync the public `visible` getter when the orchestrator changes visibility (API or legend eye). */
     setVisibleState(visible: boolean): void {
         this.visibleState = visible;
+    }
+
+    /** Sync the public `scaleValue` getter when the orchestrator changes it (API or legend menu). */
+    setScaleValueState(on: boolean): void {
+        this.scaleValueState = on;
     }
 
     emit<K extends keyof IndicatorEventMap>(event: K, payload: IndicatorEventMap[K]): void {

@@ -99,6 +99,9 @@ class FakeRenderer implements IChartRenderer {
     mountedIds: string[] = [];
     mountIndicator(model: IndicatorModel): IndicatorRenderHandle {
         this.mountedIds.push(model.id);
+        // The chip painter reads the toggle off the scene model, so a (re)mount is a delivery
+        // path too (the core stamps it on every placed model) — track it like the setter does.
+        this.scaleValueState.set(model.id, model.scaleValue === true);
         return { id: model.id };
     }
     updateIndicator(_h: IndicatorRenderHandle, _p: ScenePatch): void {}
@@ -107,6 +110,13 @@ class FakeRenderer implements IChartRenderer {
     rowVisibility = new Map<string, boolean>();
     setIndicatorVisible(h: IndicatorRenderHandle, v: boolean): void {
         this.rowVisibility.set(h.id, v);
+    }
+    scaleValueState = new Map<string, boolean>();
+    setIndicatorScaleValue(h: IndicatorRenderHandle, on: boolean): void {
+        this.scaleValueState.set(h.id, on);
+    }
+    onToggleIndicatorScaleValue(_cb: (id: string, on: boolean) => void): Unsubscribe {
+        return () => {};
     }
     onInputChange(_cb: (e: InputChangeEvent) => void): Unsubscribe {
         return () => {};
@@ -222,6 +232,31 @@ describe('ChartCell native persistence round-trip (#146/#149)', () => {
         volumeOf(cell)!.setVisible(false);
         const led = cell.dehydrate().indicators!;
         expect(led.natives).toEqual([{ type: 'volume', hidden: true }, { type: 'aroon', inputs: { length: 50 } }]);
+        cell.destroy();
+    });
+
+    it('dehydrate captures the price-axis value toggle; defaults collapse to bare types', async () => {
+        const cell = makeCell({ indicators: { natives: ['volume', 'aroon'], manifest: [] } } as Partial<CellBoot>);
+        await settle();
+        const aroon = aroonOf(cell)!;
+        aroon.setScaleValue(true);
+        // The flag reaches the handle AND the renderer (the chip painter reads it off the scene).
+        expect(aroon.scaleValue).toBe(true);
+        expect(lastRenderer!.scaleValueState.get(aroon.id)).toBe(true);
+        const led = cell.dehydrate().indicators!;
+        expect(led.natives).toEqual(['volume', { type: 'aroon', scaleValue: true }]);
+        cell.destroy();
+    });
+
+    it('a stored scaleValue seed restores the toggle on both the handle and the renderer', async () => {
+        const cell = makeCell({
+            indicators: { natives: ['volume', { type: 'aroon', scaleValue: true }], manifest: [] },
+        } as Partial<CellBoot>);
+        await settle();
+        const aroon = aroonOf(cell)!;
+        expect(aroon.scaleValue).toBe(true);
+        expect(lastRenderer!.scaleValueState.get(aroon.id)).toBe(true);
+        expect(volumeOf(cell)!.scaleValue).toBe(false);
         cell.destroy();
     });
 

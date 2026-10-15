@@ -93,6 +93,13 @@ export interface IndicatorRecord {
      * `ownScale` instead of re-deriving them from the freshly emitted model's routing.
      */
     paneLocked?: boolean;
+    /**
+     * The per-indicator "values in price scale" toggle is on: each price-scale series
+     * prints its latest value as a chip on the price axis. Authoritative display state —
+     * re-stamped onto every (re)mounted model by `placeModel`, so it survives recomputes,
+     * input edits, and live patches. Absent/false ⇒ off (the default).
+     */
+    scaleValue?: boolean;
 }
 
 export class IndicatorRegistry {

@@ -340,7 +340,7 @@ describe('drawing templates', () => {
 describe('drawings/FibRetracement label hit area (LB)', () => {
     const proj2 = fakeProjector();
     it('a level\'s number / price text selects the drawing, also outside the line (extend off)', () => {
-        const d = createDrawing('fibretracement', { paneId: 'price', anchors: [{ time: 0, price: 0 }, { time: 50, price: 100 }] })!;
+        const d = createDrawing('fibretracement', { paneId: 'price', anchors: [{ time: 0, price: 0 }, { time: 50, price: 100 }] }) as FibRetracement;
         const half = d.entryLines(proj2)!.find((e) => Math.abs(e.y1 - 50) < 1e-6)!; // the 0.5 level (y 50)
         expect(half.numberAlign).toBe('right');                    // the text sits left of the line start
         expect(d.hitTest(half.numberX - 15, half.numberY, proj2, 2)).toBe(true);   // on its text

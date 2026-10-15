@@ -2,6 +2,7 @@ import type { VelaTheme } from '../../../core/options';
 import type { IndicatorModel } from '../../../core/model/indicator';
 import type { OHLCV } from '../../../core/model/ohlcv';
 import type { LineStyle } from '../../../core/model/series';
+import { seriesShownOn, isLineLikeSeries } from '../../../core/model/series';
 import type { CoordinateSystem } from '../core/CoordinateSystem';
 import type { SceneGraph, PaneNode } from '../core/SceneGraph';
 import { percentScaleFor } from '../core/SceneGraph';
@@ -162,6 +163,7 @@ export class ChromeRenderer {
         this.drawMergedScaleColumns(ctx, scene, coords, dataW);
         this.drawPaneSeparators(ctx, scene, theme, fullW, panes);
         this.drawPriceLineAndCountdown(ctx, scene, coords, theme, dataW, pricePane);
+        this.drawIndicatorAxisValues(ctx, scene, coords, theme, dataW, pricePane);
         this.drawTimeAxis(ctx, scene, coords, theme, dataW, dataH, fullH);
         this.drawMarkLane(ctx, scene, coords, theme, dataW, dataH);
     }
@@ -427,6 +429,65 @@ export class ChromeRenderer {
             }
             default: // 'candles'
                 return last.close >= last.open ? theme.upColor : theme.downColor;
+        }
+    }
+
+    /**
+     * Price-axis value chips for indicators whose `scaleValue` toggle is on: each price-scale
+     * series' latest value, colored like the line, in the right gutter — the indicator analog of
+     * the candle's last-price label. Chips are stacked so neither they nor the candle label overlap.
+     *
+     * A series opts in on both counts: the per-indicator `scaleValue` flag turns the chips on, and
+     * each series must sit on the price scale (`seriesShownOn(s, 'priceScale')`) — this is the axis
+     * value label the `SeriesDisplay.priceScale` contract anticipates (see `core/model/series.ts`).
+     */
+    private drawIndicatorAxisValues(ctx: CanvasRenderingContext2D, scene: SceneGraph, coords: CoordinateSystem, theme: VelaTheme, dataW: number, pricePane: PaneNode | null): void {
+        const models = [...scene.indicators.values()].filter((m) => m.scaleValue === true);
+        if (models.length === 0) return;
+        const tags: Array<{ y: number; color: string; text: string }> = [];
+        for (const m of models) {
+            const pane = (m.paneId ? scene.panes.get(m.paneId) : null) ?? pricePane;
+            if (!pane || pane.collapsed || pane.bounds.height <= 0) continue;
+            const pct = percentScaleFor(scene, pane);
+            for (const s of m.series) {
+                if (!isLineLikeSeries(s) || !seriesShownOn(s, 'priceScale')) continue;
+                let value: number | undefined;
+                let color = s.style.color;
+                for (let i = s.points.length - 1; i >= 0; i--) {
+                    const p = s.points[i];
+                    if (p && p.value != null && Number.isFinite(p.value)) { value = p.value; color = p.color ?? s.style.color; break; }
+                }
+                if (value == null) continue;
+                const y = coords.priceToY(value, pane.scale, pane.bounds);
+                if (y < pane.bounds.top || y > pane.bounds.top + pane.bounds.height) continue;
+                tags.push({ y, color, text: formatAxisValue(pane.scale, pane.bounds.height, value, pct, scene.priceMintick) });
+            }
+        }
+        if (tags.length === 0) return;
+        // Stack the chips so they never print over one another — or over the candle's last-price
+        // label, which is already painted (seed its slot as occupied).
+        const occupied: Array<[number, number]> = [];
+        const n = scene.bars.length;
+        if (pricePane && n > 0 && scene.showPriceLabel && !scene.candlesHidden && !pricePane.collapsed && pricePane.bounds.height > 0) {
+            const cy = coords.priceToY(scene.bars[n - 1]!.close, pricePane.scale, pricePane.bounds);
+            occupied.push([cy - 8, cy + (scene.showCountdown ? 24 : 8)]);
+        }
+        const H = 16;
+        const x = dataW + 1;
+        ctx.textBaseline = 'middle';
+        for (const t of tags.sort((a, b) => a.y - b.y)) {
+            let top = t.y - 8;
+            for (const [a, b] of occupied.sort((p, q) => p[0] - q[0])) {
+                if (top < b + 1 && top + H > a - 1) top = b + 1;   // overlaps this slot: drop below it
+            }
+            occupied.push([top, top + H]);
+            const w = ctx.measureText(t.text).width + 8;
+            ctx.fillStyle = t.color;
+            ctx.fillRect(x, top, w, H);
+            ctx.fillStyle = tagTextColor(t.color, theme.background);
+            ctx.textAlign = 'center';
+            ctx.fillText(t.text, x + w / 2, top + H / 2);
+            ctx.textAlign = 'start';
         }
     }
 

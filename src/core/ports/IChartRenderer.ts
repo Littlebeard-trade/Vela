@@ -295,6 +295,8 @@ export interface IChartRenderer {
      * `capabilities.paneManagement`.
      */
     setIndicatorPane?(handle: IndicatorRenderHandle, paneId: string, opts?: { ownScale?: boolean }): void;
+    /** Toggle printing each of the indicator's price-scale series' latest value on the price axis. */
+    setIndicatorScaleValue?(handle: IndicatorRenderHandle, on: boolean): void;
     /** Set the top-to-bottom pane display order (an array of pane ids). */
     orderPanes?(orderedIds: string[]): void;
     /** Collapse a pane to a thin strip (legend + expand button) or restore it. */
@@ -389,6 +391,9 @@ export interface IChartRenderer {
     onRemoveIndicator(cb: (id: string) => void): Unsubscribe;
     /** The renderer tells core when the user toggles an indicator's visibility in-chart (the legend eye). */
     onToggleIndicatorVisible?(cb: (id: string, visible: boolean) => void): Unsubscribe;
+    /** The renderer tells core when the user toggles an indicator's price-axis value chips in-chart
+     *  (the legend row menu). Optional — a renderer without the toggle omits it. */
+    onToggleIndicatorScaleValue?(cb: (id: string, on: boolean) => void): Unsubscribe;
     onCrosshairMove(cb: (e: CrosshairEvent) => void): Unsubscribe;
     onClick(cb: (e: ClickEvent) => void): Unsubscribe;
     /** Touch long-press on a price or time axis strip. Optional — a renderer without

@@ -71,6 +71,8 @@ interface LegendRow {
     plotValuesKey: string;
     /** Per-row override from the row's context menu; null ⇒ follow the chart-wide setting. */
     showValues: boolean | null;
+    /** The per-indicator "values in price scale" toggle (row menu); drives the chip on the price axis. */
+    scaleValue: boolean;
     /** Hovered/selected (outline + controls visible) — the values readout yields to the controls. */
     highlighted: boolean;
     paneId: string;
@@ -149,6 +151,7 @@ export class InputsUI {
     private onChange: ((c: InputsUIChange) => void) | null = null;
     private onRemove: ((id: string) => void) | null = null;
     private onToggleVisible: ((id: string, visible: boolean) => void) | null = null;
+    private onToggleScaleValue: ((id: string, on: boolean) => void) | null = null;
     /** Host symbol picker for `input.symbol`; when set the control opens the host's ticker UI. */
     private symbolPicker: SymbolPickerFn | null = null;
     /** Mobile chrome: the inputs dialog opens fullscreen and the legends render compact. */
@@ -293,6 +296,18 @@ export class InputsUI {
      */
     setOnToggleVisible(cb: (id: string, visible: boolean) => void): void {
         this.onToggleVisible = cb;
+    }
+
+    /** Wire the row menu's "Values in price scale" toggle (the host flips the display flag). */
+    setOnToggleScaleValue(cb: (id: string, on: boolean) => void): void {
+        this.onToggleScaleValue = cb;
+    }
+
+    /** Reflect the indicator's price-axis value state on its row, so the row menu's
+     *  checkmark matches (driven by the renderer on toggle and on restore). */
+    setScaleValue(id: string, on: boolean): void {
+        const row = this.rows.get(id);
+        if (row) row.scaleValue = on;
     }
 
     setTheme(theme: VelaTheme): void {
@@ -513,11 +528,10 @@ export class InputsUI {
         const row = this.rows.get(id);
         if (!row) return;
         this.rowMenuId = id;
-        const items: MenuItemDescriptor[] = [{
-            id: 'values',
-            label: 'Indicator values',
-            checked: this.rowValuesShown(row),
-        }];
+        const items: MenuItemDescriptor[] = [
+            { id: 'values', label: 'Indicator values', checked: this.rowValuesShown(row) },
+            { id: 'scaleValue', label: 'Values in price scale', checked: row.scaleValue },
+        ];
         if (!this.rowMenu) {
             this.rowMenu = new Menu({
                 host: this.container,
@@ -526,11 +540,16 @@ export class InputsUI {
                 // Right-click action menu — checked state reads as a leading ✓ (see the kit Menu).
                 checkmarks: true,
                 onSelect: (itemId) => {
-                    if (itemId !== 'values' || !this.rowMenuId) return;
+                    if (!this.rowMenuId) return;
                     const target = this.rows.get(this.rowMenuId);
                     if (!target) return;
-                    target.showValues = !this.rowValuesShown(target);
-                    this.renderRowValues(target);
+                    if (itemId === 'values') {
+                        target.showValues = !this.rowValuesShown(target);
+                        this.renderRowValues(target);
+                    } else if (itemId === 'scaleValue') {
+                        target.scaleValue = !target.scaleValue;
+                        this.onToggleScaleValue?.(target.id, target.scaleValue);
+                    }
                 },
             });
         } else {
@@ -856,7 +875,7 @@ export class InputsUI {
         el.appendChild(controlsEl);
 
         this.attach(this.legendFor(paneId), el, !!opts.native);
-        const row: LegendRow = { id, title, inputs, values: { ...values }, props: opts.props ?? [], propValues: { ...(opts.propValues ?? {}) }, el, titleEl, statusEl, valuesEl, plotValues: [], plotValuesKey: '', showValues: null, highlighted: false, paneId, hidden: false, eyeEl, controlsEl, extrasEl, calloutsEl, callouts: [], native: !!opts.native };
+        const row: LegendRow = { id, title, inputs, values: { ...values }, props: opts.props ?? [], propValues: { ...(opts.propValues ?? {}) }, el, titleEl, statusEl, valuesEl, plotValues: [], plotValuesKey: '', showValues: null, scaleValue: false, highlighted: false, paneId, hidden: false, eyeEl, controlsEl, extrasEl, calloutsEl, callouts: [], native: !!opts.native };
         this.rows.set(id, row);
         this.renderCallouts(row);
         this.syncFoldToggle(); // 2+ indicators grow the fold chevron; a folded legend hides the new row too

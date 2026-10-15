@@ -196,11 +196,14 @@ interface CellInstance {
     values?: { inputs?: Record<string, InputValue>; props?: Record<string, InputValue> };
 }
 
-/** A native handle's ledger entry: the bare type, or type + input deltas + hidden flag. */
+/** A native handle's ledger entry: the bare type, or type + input deltas + hidden + scale-value flags. */
 function nativeLedgerEntry(handle: IndicatorHandle): LedgerNativeEntry {
     const inputs = inputDeltas(handle.inputs, handle.inputValues());
     const hidden = !handle.visible;
-    return inputs || hidden ? { type: handle.nativeType!, ...(inputs ? { inputs } : {}), ...(hidden ? { hidden: true } : {}) } : handle.nativeType!;
+    const scaleValue = handle.scaleValue;
+    return inputs || hidden || scaleValue
+        ? { type: handle.nativeType!, ...(inputs ? { inputs } : {}), ...(hidden ? { hidden: true } : {}), ...(scaleValue ? { scaleValue: true } : {}) }
+        : handle.nativeType!;
 }
 
 /** The handle's current input/prop DELTAS against declaration defaults (see `inputDeltas`). */
@@ -1103,7 +1106,7 @@ export class ChartCell {
             if (list.length === 0) return; // the manifest hasn't resolved yet — keep waiting
             for (const led of this.pendingManifestNames) {
                 const entry = list.find((e) => e.name === ledgerEntryName(led));
-                if (entry) this.addManifestInstance(entry, { record: false, ...(typeof led === 'object' ? { inputs: led.inputs, props: led.props, hidden: led.hidden } : {}) });
+                if (entry) this.addManifestInstance(entry, { record: false, ...(typeof led === 'object' ? { inputs: led.inputs, props: led.props, hidden: led.hidden, scaleValue: led.scaleValue } : {}) });
             }
             this.pendingManifestNames = null;
             return;
@@ -1154,7 +1157,7 @@ export class ChartCell {
                     if (entry)
                         this.addManifestInstance(entry, {
                             record: false,
-                            ...(typeof item === 'object' ? { inputs: item.inputs, props: item.props, hidden: item.hidden } : {}),
+                            ...(typeof item === 'object' ? { inputs: item.inputs, props: item.props, hidden: item.hidden, scaleValue: item.scaleValue } : {}),
                         });
                 }
                 this.pendingManifestNames = null;
@@ -1218,17 +1221,17 @@ export class ChartCell {
      * a persistence handler's `restore` runs silently, a user-driven call records.
      */
     addExternalIndicator(entry: ExternalIndicatorEntry): void {
-        const { id, inputs, props, hidden, ...script } = entry;
+        const { id, inputs, props, hidden, scaleValue, ...script } = entry;
         this.addManifestInstance(
             { ...script, enabled: true },
-            { external: true, ...(id !== undefined ? { id } : {}), ...(inputs ? { inputs } : {}), ...(props ? { props } : {}), ...(hidden ? { hidden: true } : {}) },
+            { external: true, ...(id !== undefined ? { id } : {}), ...(inputs ? { inputs } : {}), ...(props ? { props } : {}), ...(hidden ? { hidden: true } : {}), ...(scaleValue ? { scaleValue: true } : {}) },
         );
     }
 
     /** Add ONE instance of a manifest entry (repeatable — duplicates are legitimate). */
     addManifestInstance(
         entry: ResolvedIndicator,
-        opts: { record?: boolean; external?: boolean; id?: string; inputs?: Record<string, InputValue>; props?: Record<string, InputValue>; hidden?: boolean } = {},
+        opts: { record?: boolean; external?: boolean; id?: string; inputs?: Record<string, InputValue>; props?: Record<string, InputValue>; hidden?: boolean; scaleValue?: boolean } = {},
     ): void {
         if (this.destroyed) return;
         const values = opts.inputs || opts.props ? { inputs: opts.inputs, props: opts.props } : undefined;
@@ -1241,6 +1244,8 @@ export class ChartCell {
         // synchronously, and hiding suspends the engine session before it spends
         // anything on an indicator the user had tucked away.
         if (opts.hidden) it.handle?.setVisible(false);
+        // A restored price-axis value toggle applies the same way (pure display state).
+        if (opts.scaleValue) it.handle?.setScaleValue(true);
         this.instances.push(it);
         this.deps.onIndicatorsChanged(this.id);
         if (opts.record === false) return;
@@ -1313,6 +1318,8 @@ export class ChartCell {
         }
         const visible = !(typeof entry === 'object' && entry.hidden);
         if (handle.visible !== visible) handle.setVisible(visible);
+        const scaleValue = typeof entry === 'object' && entry.scaleValue === true;
+        if (handle.scaleValue !== scaleValue) handle.setScaleValue(scaleValue);
     }
 
     addNative(type: string): void {
@@ -1514,7 +1521,10 @@ export class ChartCell {
                         // keeps whatever values it was restored with.
                         const d = it.handle ? instanceDeltas(it.handle) : it.values;
                         const hidden = it.handle ? !it.handle.visible : false;
-                        return d || hidden ? { name: it.entry.name, ...(d ?? {}), ...(hidden ? { hidden: true } : {}) } : it.entry.name;
+                        const scaleValue = it.handle ? it.handle.scaleValue : false;
+                        return d || hidden || scaleValue
+                            ? { name: it.entry.name, ...(d ?? {}), ...(hidden ? { hidden: true } : {}), ...(scaleValue ? { scaleValue: true } : {}) }
+                            : it.entry.name;
                     }),
                 pendingManifest: this.pendingManifestNames,
                 manifestSettled: this.deps.manifestSettled(),

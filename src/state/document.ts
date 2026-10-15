@@ -98,12 +98,13 @@ export interface CellState {
 }
 
 /** One persisted manifest-instance entry (see `CellState.indicators`). */
-export type PersistedManifestEntry = string | { name: string; inputs?: Record<string, unknown>; props?: Record<string, unknown>; hidden?: boolean };
+export type PersistedManifestEntry = string | { name: string; inputs?: Record<string, unknown>; props?: Record<string, unknown>; hidden?: boolean; scaleValue?: boolean };
 
 /** One persisted native-indicator entry (see `CellState.indicators`). The bare TYPE is
  *  the historical shape and still the common case; the object form carries the input
- *  DELTAS and/or the hidden flag so native settings and visibility survive a reload. */
-export type PersistedNativeEntry = string | { type: string; inputs?: Record<string, unknown>; hidden?: boolean };
+ *  DELTAS and/or the hidden and price-axis-value flags so native settings, visibility and
+ *  that toggle survive a reload. */
+export type PersistedNativeEntry = string | { type: string; inputs?: Record<string, unknown>; hidden?: boolean; scaleValue?: boolean };
 
 /** One entry of the document's `charts` array: a chart's state plus its cell IDENTITY. */
 export interface ChartState extends CellState {
@@ -246,11 +247,12 @@ function sanitizeCell(raw: unknown): CellState | null {
             ? ind.manifest.flatMap((n): PersistedManifestEntry[] => {
                   if (typeof n === 'string') return [n];
                   if (n != null && typeof n === 'object' && typeof (n as { name?: unknown }).name === 'string') {
-                      const e = n as { name: string; inputs?: unknown; props?: unknown; hidden?: unknown };
+                      const e = n as { name: string; inputs?: unknown; props?: unknown; hidden?: unknown; scaleValue?: unknown };
                       const inputs = bag(e.inputs);
                       const props = bag(e.props);
                       const hidden = e.hidden === true;
-                      return [inputs || props || hidden ? { name: e.name, ...(inputs ? { inputs } : {}), ...(props ? { props } : {}), ...(hidden ? { hidden } : {}) } : e.name];
+                      const scaleValue = e.scaleValue === true;
+                      return [inputs || props || hidden || scaleValue ? { name: e.name, ...(inputs ? { inputs } : {}), ...(props ? { props } : {}), ...(hidden ? { hidden } : {}), ...(scaleValue ? { scaleValue } : {}) } : e.name];
                   }
                   return [];
               })
@@ -261,10 +263,11 @@ function sanitizeCell(raw: unknown): CellState | null {
             ? ind.natives.flatMap((n): PersistedNativeEntry[] => {
                   if (typeof n === 'string') return [n];
                   if (n != null && typeof n === 'object' && typeof (n as { type?: unknown }).type === 'string') {
-                      const e = n as { type: string; inputs?: unknown; hidden?: unknown };
+                      const e = n as { type: string; inputs?: unknown; hidden?: unknown; scaleValue?: unknown };
                       const inputs = bag(e.inputs);
                       const hidden = e.hidden === true;
-                      return [inputs || hidden ? { type: e.type, ...(inputs ? { inputs } : {}), ...(hidden ? { hidden } : {}) } : e.type];
+                      const scaleValue = e.scaleValue === true;
+                      return [inputs || hidden || scaleValue ? { type: e.type, ...(inputs ? { inputs } : {}), ...(hidden ? { hidden } : {}), ...(scaleValue ? { scaleValue } : {}) } : e.type];
                   }
                   return [];
               })

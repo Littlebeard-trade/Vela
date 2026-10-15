@@ -365,6 +365,7 @@ export class NativeRenderer implements IChartRenderer {
     private readonly inputChangeCbs = new Set<(e: InputChangeEvent) => void>();
     private readonly removeIndicatorCbs = new Set<(id: string) => void>();
     private readonly toggleVisibleCbs = new Set<(id: string, visible: boolean) => void>();
+    private readonly toggleScaleValueCbs = new Set<(id: string, on: boolean) => void>();
     private readonly moveIndicatorCbs = new Set<(id: string, target: MoveTarget) => void>();
     private readonly priceStyleCbs = new Set<(style: PriceStyle) => void>();
 
@@ -1622,6 +1623,9 @@ export class NativeRenderer implements IChartRenderer {
         this.inputsUI.setOnToggleVisible((id, visible) => {
             for (const cb of this.toggleVisibleCbs) cb(id, visible);
         });
+        this.inputsUI.setOnToggleScaleValue((id, on) => {
+            for (const cb of this.toggleScaleValueCbs) cb(id, on);
+        });
         this.inputsUI.setMoveApi({
             panes: () =>
                 this.scene.orderedPanes().map((p, i) => ({
@@ -2038,6 +2042,16 @@ export class NativeRenderer implements IChartRenderer {
         this.scheduler.invalidate(InvalidateLevel.Full);
     }
 
+    /** Toggle the indicator's price-axis value chips (drawn by the chrome layer). Also
+     *  syncs the legend row so the row menu's checkmark reflects the live state. */
+    setIndicatorScaleValue(handle: IndicatorRenderHandle, on: boolean): void {
+        this.inputsUI?.setScaleValue(handle.id, on);
+        const model = this.scene.indicators.get(handle.id);
+        if (!model || model.scaleValue === on) return;
+        model.scaleValue = on;
+        this.scheduler.invalidate(InvalidateLevel.Full);
+    }
+
     orderPanes(orderedIds: string[]): void {
         this.scene.orderPanes(orderedIds);
         this.layoutPanes();
@@ -2165,6 +2179,9 @@ export class NativeRenderer implements IChartRenderer {
                 native: !!model.native,
                 ...(model.props ? { props: model.props, propValues: model.propValues ?? {} } : {}),
             });
+            // Keep the row menu's price-axis-value checkmark in step with the model the core
+            // re-stamps on each (re)mount — covers a restored flag that mounts after loading.
+            this.inputsUI.setScaleValue(model.id, model.scaleValue === true);
         }
         if (model.native?.type === 'volume') {
             this.volumeActive = true; // the volume layer follows the indicator's presence
@@ -2278,6 +2295,11 @@ export class NativeRenderer implements IChartRenderer {
     onToggleIndicatorVisible(cb: (id: string, visible: boolean) => void): Unsubscribe {
         this.toggleVisibleCbs.add(cb);
         return () => this.toggleVisibleCbs.delete(cb);
+    }
+
+    onToggleIndicatorScaleValue(cb: (id: string, on: boolean) => void): Unsubscribe {
+        this.toggleScaleValueCbs.add(cb);
+        return () => this.toggleScaleValueCbs.delete(cb);
     }
 
     onPriceStyleChange(cb: (style: PriceStyle) => void): Unsubscribe {

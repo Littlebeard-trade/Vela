@@ -79,6 +79,9 @@ export interface ExternalIndicatorEntry {
      *  stays, marked hidden) — a persistence handler carrying a hidden flag applies
      *  it here so the engine never spends anything on a tucked-away indicator. */
     hidden?: boolean;
+    /** Restore the price-axis value toggle: the indicator's price-scale series print their
+     *  latest value as chips on the price axis right after the add. */
+    scaleValue?: boolean;
 }
 
 /** Where an action is projected. */

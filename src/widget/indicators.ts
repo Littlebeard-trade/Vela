@@ -94,7 +94,7 @@ export async function resolveIndicators(
  * declaration default, else the name plus the DELTAS (see `inputDeltas`) — a default
  * that later changes in the script must never stay frozen in saved documents.
  */
-export type LedgerManifestEntry = string | { name: string; inputs?: Record<string, InputValue>; props?: Record<string, InputValue>; hidden?: boolean };
+export type LedgerManifestEntry = string | { name: string; inputs?: Record<string, InputValue>; props?: Record<string, InputValue>; hidden?: boolean; scaleValue?: boolean };
 
 /** The entry's manifest NAME, whichever shape it travels as. */
 export const ledgerEntryName = (e: LedgerManifestEntry): string => (typeof e === 'string' ? e : e.name);
@@ -105,7 +105,7 @@ export const ledgerEntryName = (e: LedgerManifestEntry): string => (typeof e ===
  * DELTAS and/or the `hidden` flag — same rule as {@link LedgerManifestEntry}, so
  * native settings and visibility survive a state round-trip too.
  */
-export type LedgerNativeEntry = string | { type: string; inputs?: Record<string, InputValue>; hidden?: boolean };
+export type LedgerNativeEntry = string | { type: string; inputs?: Record<string, InputValue>; hidden?: boolean; scaleValue?: boolean };
 
 /** The entry's native TYPE, whichever shape it travels as. */
 export const ledgerNativeType = (e: LedgerNativeEntry): string => (typeof e === 'string' ? e : e.type);

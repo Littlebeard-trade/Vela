@@ -85,6 +85,13 @@ export interface IndicatorModel {
      */
     ownScale?: boolean;
     /**
+     * When true, each of this indicator's price-scale series prints its latest value as a
+     * colored chip on the price axis (like the candle's last-price label). Off by default;
+     * a per-indicator toggle turns it on. Series taken off the price scale
+     * (`display.priceScale === false`) are skipped.
+     */
+    scaleValue?: boolean;
+    /**
      * Chart time (epoch ms) of the execution's FIRST bar. Index-aligned payloads —
      * dense series point/bar arrays and `bar_index` drawing coordinates — count from
      * this bar, so a renderer aligns them to the chart via the offset of this time in
