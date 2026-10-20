@@ -234,7 +234,11 @@ export class IndicatorPicker {
             bucket.push([r, i] as const);
             byCat.set(cat, bucket);
         });
-        for (const [cat, bucket] of byCat) {
+        // LB: a category whose name starts with "My " (e.g. "My indicators") is the user's own section — list it first,
+        // above the built-ins (otherwise 88 built-in rows push it off screen). Everything else keeps library order.
+        const pinned = (cat: string): number => (/^my /i.test(cat) ? 0 : 1);
+        const cats = [...byCat.entries()].sort((a, b) => pinned(a[0]) - pinned(b[0]));
+        for (const [cat, bucket] of cats) {
             const title = doc.createElement('div');
             title.className = 'vela-ip-group';
             title.textContent = cat;
