@@ -9,6 +9,16 @@ import { iconEl } from '../ui/icons';
 import { injectStyles } from '../ui/styles';
 import type { ToolbarDefinition, ToolDefinition } from '../core/drawings/toolbar';
 import type { DrawingTypeKey } from '../core/drawings/Drawing';
+import { msg } from '../core/i18n/message';
+import { sourceText, textOf } from '../core/i18n/text';
+import type { MessageLike, Translator } from '../core/i18n/types';
+
+const TEXT = {
+    title: msg('widget.drawingsDrawer.title', 'Drawings'),
+    search: msg('widget.drawingsDrawer.search', 'Search tools…'),
+    favorite: msg('widget.drawingsDrawer.favorite', 'Favorite {tool}'),
+    noMatch: msg('widget.drawingsDrawer.noMatch', 'No tools match.'),
+};
 
 const STYLE_ID = 'vela-widget-drawings-drawer';
 const CSS = `
@@ -117,6 +127,8 @@ export interface DrawingsDrawerOptions {
     onFavorite: (type: DrawingTypeKey, on: boolean) => void;
     onSelect: (type: DrawingTypeKey) => void;
     onOpenChange?: (open: boolean) => void;
+    /** The shell's translator, read each time the drawer opens. Absent: English. */
+    i18n?: () => Translator;
 }
 
 export class DrawingsDrawer {
@@ -132,7 +144,7 @@ export class DrawingsDrawer {
         injectStyles(STYLE_ID, CSS, doc);
         this.drawer = new Drawer({
             host: opts.host,
-            title: 'Drawings',
+            title: this.t(TEXT.title),
             onOpenChange: opts.onOpenChange,
             // Swiping across the tool list pages through the group tabs.
             onSwipe: (dir) => this.stepGroup(dir === 'left' ? 1 : -1),
@@ -146,7 +158,7 @@ export class DrawingsDrawer {
         search.appendChild(iconEl('search', doc));
         this.input = doc.createElement('input');
         this.input.type = 'text';
-        this.input.placeholder = 'Search tools…';
+        this.input.placeholder = this.t(TEXT.search);
         this.input.addEventListener('input', () => this.renderList());
         search.appendChild(this.input);
 
@@ -160,7 +172,13 @@ export class DrawingsDrawer {
         this.drawer.body.append(sticky, this.list);
     }
 
+    private t(m: MessageLike, values?: Record<string, string | number>): string {
+        return textOf(this.opts.i18n?.() ?? null, m, values);
+    }
+
     open(): void {
+        this.drawer.setTitle(this.t(TEXT.title));
+        this.input.placeholder = this.t(TEXT.search);
         this.definition = this.opts.toolbar();
         if (!this.definition.groups.some((g) => g.id === this.activeGroup)) this.activeGroup = this.definition.groups[0]?.id ?? '';
         this.input.value = '';
@@ -196,7 +214,7 @@ export class DrawingsDrawer {
         for (const group of this.definition.groups) {
             const tab = doc.createElement('button');
             tab.className = 'vela-dd-tab';
-            tab.textContent = group.label;
+            tab.textContent = this.t(group.label);
             if (group.id === this.activeGroup) tab.dataset.active = '1';
             tab.addEventListener('click', () => {
                 this.activeGroup = group.id;
@@ -211,7 +229,15 @@ export class DrawingsDrawer {
     private renderList(): void {
         const doc = this.list.ownerDocument;
         this.list.replaceChildren();
-        const query = this.input.value.trim().toLowerCase();
+        const locale = this.opts.i18n?.().locale;
+        const lower = (s: string): string => {
+            try {
+                return s.toLocaleLowerCase(locale);
+            } catch {
+                return s.toLowerCase();
+            }
+        };
+        const query = lower(this.input.value.trim());
         const active = this.opts.currentTool();
 
         const section = (label: string): void => {
@@ -229,7 +255,7 @@ export class DrawingsDrawer {
             glyph.innerHTML = tool.icon;
             const label = doc.createElement('span');
             label.className = 'vela-dd-label';
-            label.textContent = tool.label;
+            label.textContent = this.t(tool.label);
             const star = doc.createElement('button');
             star.className = 'vela-dd-star';
             const paintStar = (on: boolean): void => {
@@ -238,7 +264,7 @@ export class DrawingsDrawer {
                 else delete star.dataset.on;
             };
             paintStar(this.opts.isFavorite(tool.type));
-            star.setAttribute('aria-label', `Favorite ${tool.label}`);
+            star.setAttribute('aria-label', this.t(TEXT.favorite, { tool: this.t(tool.label) }));
             star.addEventListener('click', (e) => {
                 e.stopPropagation(); // the row underneath arms the tool — a star tap must not
                 const on = !this.opts.isFavorite(tool.type);
@@ -257,16 +283,17 @@ export class DrawingsDrawer {
             // Search flattens every group; group labels become the section headers.
             let any = false;
             for (const group of this.definition.groups) {
-                const hits = group.tools.filter((t) => t.label.toLowerCase().includes(query));
+                // A tool matches by its name as shown, or by its English name.
+                const hits = group.tools.filter((t) => lower(this.t(t.label)).includes(query) || sourceText(t.label).toLowerCase().includes(query));
                 if (hits.length === 0) continue;
                 any = true;
-                section(group.label);
+                section(this.t(group.label));
                 for (const tool of hits) row(tool);
             }
             if (!any) {
                 const empty = doc.createElement('div');
                 empty.className = 'vela-dd-empty';
-                empty.textContent = 'No tools match.';
+                empty.textContent = this.t(TEXT.noMatch);
                 this.list.appendChild(empty);
             }
             return;
@@ -276,7 +303,7 @@ export class DrawingsDrawer {
         if (!group) return;
         if (group.sections && group.sections.length > 0) {
             for (const s of group.sections) {
-                section(s.label);
+                section(this.t(s.label));
                 for (const tool of s.tools) row(tool);
             }
         } else {

@@ -4,6 +4,7 @@ import type { VisibleRange } from './ports/IChartRenderer';
 import type { InputValue } from './model/inputs';
 import type { IChartRenderer } from './ports/IChartRenderer';
 import type { DrawingsOption } from './drawings/toolbar';
+import type { LocalizationOptions } from './i18n/types';
 
 /** A registered data-provider name (any string; matched case-insensitively). */
 export type ProviderName = string;
@@ -96,7 +97,10 @@ export type ThemeName = 'dark' | 'light';
  *  from `'vela/renderers/lwc'` and pass it as `options.renderer`. */
 export type RendererConstructor = new (opts?: RendererDisplayOptions) => IChartRenderer;
 
-export interface VelaOptions extends MarketConfig {
+/** The chart's options. Its {@link LocalizationOptions} (`locale`, `direction`, `messages`,
+ *  `numberingSystem`, `hourCycle`, `weekStart`, `formatters`) change at runtime through
+ *  `chart.setLocale`. */
+export interface VelaOptions extends MarketConfig, LocalizationOptions {
     /** false = static history; true = history + live forming candle. */
     live?: boolean;
     theme?: ThemeName | VelaTheme;

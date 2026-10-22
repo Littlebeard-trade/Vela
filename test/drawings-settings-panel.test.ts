@@ -227,11 +227,11 @@ describe('the drawing settings panel', () => {
         s.popup.destroy();
     });
 
-    it('Ok keeps the edits', async () => {
+    it('OK keeps the edits', async () => {
         const s = setup(make('box'));
         await s.openPanel();
         s.segButton('Line style', 'Dashed').click();
-        s.footer('Ok').click();
+        s.footer('OK').click();
         await settled();
         expect(s.panel()).toBeNull();
         expect(s.live().style.lineStyle).toBe('dashed');

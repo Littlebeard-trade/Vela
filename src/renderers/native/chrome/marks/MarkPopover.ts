@@ -5,6 +5,9 @@
 // cluster of many marks costs one fetch per entry actually looked at. The glyph is
 // canvas pixels, not DOM, so an invisible anchor element inside the plot stands in as
 // the popover's trigger; the renderer moves it as the glyph moves (pan/zoom).
+import { msg } from '../../../../core/i18n/message';
+import { textOf } from '../../../../core/i18n/text';
+import type { Translator } from '../../../../core/i18n/types';
 import type { VelaTheme } from '../../../../core/options';
 import type { MarkContent, MarkContentSource, MarkPanelItem } from '../../../../core/marks/types';
 import { Popover } from '../../../../ui/components/popover';
@@ -41,7 +44,14 @@ export interface MarkPopoverDeps {
     theme: () => VelaTheme;
     /** The cluster whose popup shows changed — its key while one is open, null once it closed (the glyph paints "active" meanwhile). */
     onOpenChange?: (key: string | null) => void;
+    /** The chart's translator (the popup's loading and error notes). Absent: English. */
+    i18n?: () => Translator;
 }
+
+const TEXT = {
+    loading: msg('chart.marks.loading', 'Loading…'),
+    failed: msg('chart.marks.failed', 'Couldn’t load this entry.'),
+};
 
 /** A glyph's box in plot space (center + size). */
 export interface MarkGlyphRect {
@@ -171,7 +181,7 @@ export class MarkPopover {
             if (typeof content === 'function') {
                 const slot = doc.createElement('div');
                 slot.className = 'vela-marks-loading';
-                slot.textContent = 'Loading…';
+                slot.textContent = textOf(this.deps.i18n?.() ?? null, TEXT.loading);
                 section.appendChild(slot);
                 pending.push({ el: section, resolve: () => this.resolveLazy(content, slot, gen) });
             } else if (content !== undefined) {
@@ -202,7 +212,7 @@ export class MarkPopover {
             () => {
                 if (gen !== this.generation) return;
                 slot.className = 'vela-marks-error';
-                slot.textContent = 'Couldn’t load this entry.';
+                slot.textContent = textOf(this.deps.i18n?.() ?? null, TEXT.failed);
             },
         );
     }

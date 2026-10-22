@@ -4,6 +4,7 @@ import type { VolumeLayerData, VpvrLayerData } from '../../../core/model/volume-
 import type { PaneKind } from '../../../core/model/scene';
 import type { IndicatorModel, PaneAxisBand } from '../../../core/model/indicator';
 import type { PriceStyle } from '../../../core/options';
+import type { ResolvedFormatters } from '../../../core/format/types';
 import type { PriceScale, PaneBounds } from './CoordinateSystem';
 import { type CandlePaintOverride, type ChartStyle, type CrosshairOverride, defaultChartStyle } from './chartConfig';
 import { defaultTradeMarkersState, type TradeMarkersState } from '../../shared/trade-markers';
@@ -179,6 +180,9 @@ export class SceneGraph {
     percentBaseline = 0;
     /** IANA time zone for the time axis + crosshair/data-window stamps (`'UTC'` default). */
     timezone = 'UTC';
+    /** The chart's formatters (`chart.i18n.format`) for axis labels, chips and readouts;
+     *  undefined = the built-in English formatting (a renderer driven without a chart). */
+    format: ResolvedFormatters | undefined = undefined;
     /** Draw the background gridlines (price + time). Master toggle (`gridlines`
      *  feature); per-axis visibility + colors live in `style.gridVert`/`gridHorz`. */
     showGrid = true;

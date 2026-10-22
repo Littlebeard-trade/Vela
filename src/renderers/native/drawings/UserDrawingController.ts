@@ -1,3 +1,7 @@
+import { msg } from '../../../core/i18n/message';
+import { sourceText } from '../../../core/i18n/text';
+import { englishTranslator } from '../../../core/i18n/translator';
+import type { MessageLike, Translator } from '../../../core/i18n/types';
 import type { VelaTheme } from '../../../core/options';
 import type {
     Drawing,
@@ -27,9 +31,10 @@ import { MeasureOverlay } from './MeasureOverlay';
 import { topDrawingAt, deletableSelection, deleteTargets, HIT_TOLERANCE } from './DrawingHitTester';
 import { keyToDrawingAction, isEditingText } from './DrawingKeys';
 import type { DrawingSlice } from '../core/SceneGraph';
+import { beginPlotFrame } from '../core/plotDirection';
 
 /** Shown in the inline editor while a label carries no text yet. */
-const TEXT_PLACEHOLDER = 'Enter Text';
+const TEXT_PLACEHOLDER = msg('drawing.inlineEditor.placeholder', 'Enter Text');
 /** Extra width past the measured glyphs so the caret has somewhere to sit. */
 const CARET_ROOM = 8;
 /** The editor's border weight; its padding is the shared TEXT_FRAME inset/rise minus this, so the
@@ -74,6 +79,8 @@ export interface UserDrawingDeps {
     setSnapMode(mode: SnapMode): void;
     /** Reserve `px` of left gutter for the docked toolbar (0 releases it) — the plot insets to its right. */
     setToolbarGutter(px: number): void;
+    /** The chart's translator (toolbar, settings, labels painted on drawings). Absent: English. */
+    i18n?(): Translator;
 }
 
 /** No interaction targets on the interleave layers — handles always paint in front. */
@@ -162,6 +169,7 @@ export class UserDrawingController implements IDrawingsRendererPort {
             chartBarMs: () => deps.chartBarMs(),
             timeZone: () => deps.timeZone?.() ?? 'UTC',
             priceDecimals: () => deps.priceDecimals?.() ?? null,
+            i18n: () => this.i18n(),
         });
         this.toolbar = new DrawingToolbar(
             toolbarHost,
@@ -180,6 +188,7 @@ export class UserDrawingController implements IDrawingsRendererPort {
                     this.toolbarCollapsed = collapsed;
                     this.syncToolbarGutter();
                 },
+                i18n: () => this.i18n(),
             },
         );
         this.interaction = new DrawingInteraction({
@@ -197,6 +206,23 @@ export class UserDrawingController implements IDrawingsRendererPort {
             snap: (pt, paneId, mode, cursorPx) => this.deps.snap(pt, paneId, mode, cursorPx),
             toolDefaults: () => this.activeToolDefaults,
         });
+    }
+
+    /** The chart's translator (English until the renderer hands one over). */
+    private i18n(): Translator {
+        return this.deps.i18n?.() ?? englishTranslator();
+    }
+
+    private t(m: MessageLike): string {
+        return this.i18n().t(m);
+    }
+
+    /** The chart's language changed: the toolbar relabels, an open settings bar closes (it
+     *  reopens in the new language), and labels painted on drawings repaint. */
+    relocalize(): void {
+        this.toolbar.relabel();
+        this.popup.close();
+        this.render();
     }
 
     // ── IDrawingsRendererPort (commands down) ──
@@ -623,7 +649,7 @@ export class UserDrawingController implements IDrawingsRendererPort {
         if (!css) return;
         const ta = document.createElement('textarea');
         ta.value = initial;
-        ta.placeholder = TEXT_PLACEHOLDER;
+        ta.placeholder = this.t(TEXT_PLACEHOLDER);
         ta.spellcheck = false;
         ta.style.cssText = css;
         // live: the canvas bubble / hit box follow the typed text (and the editor re-lays out around it)
@@ -726,7 +752,7 @@ export class UserDrawingController implements IDrawingsRendererPort {
         const anchor = d.handlePoints(proj)[0];
         if (!anchor) return null;
         const lh = labelLineHeight(fs);
-        const lines = (value || TEXT_PLACEHOLDER).split('\n');
+        const lines = (value || this.t(TEXT_PLACEHOLDER)).split('\n');
         const w = Math.ceil(this.measureTextWidth(lines, font)) + CARET_ROOM;
         // The painter draws the label at (anchor + 2) with a `top` baseline; a textarea centers each
         // glyph in its line box, so lift it by half the leading to keep both in the same place. The
@@ -988,9 +1014,10 @@ export class UserDrawingController implements IDrawingsRendererPort {
             }
             const sctx = canvas.getContext('2d');
             if (!sctx) continue;
-            sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            beginPlotFrame(sctx, dpr);
             sctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
             this.painter.seriesLook = this.deps.seriesLook();
+            this.painter.i18n = this.i18n();
             this.painter.paintAll(sctx, drawings, proj, theme, EMPTY_TARGETS);
             const slices = out.get(paneId) ?? [];
             slices.push({ beforeZ, canvas });
@@ -1009,7 +1036,7 @@ export class UserDrawingController implements IDrawingsRendererPort {
         const ctx = this.ctx;
         if (!ctx) return;
         const dpr = this.deps.dpr();
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        beginPlotFrame(ctx, dpr);
         ctx.clearRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
         const proj = this.deps.projector();
         // A transparent inline editor overlays the label it edits — mute the canvas copy so the
@@ -1025,6 +1052,7 @@ export class UserDrawingController implements IDrawingsRendererPort {
         // stack painted their bodies on the backend layers, so only their handles come back on top
         // — buried under the candles they'd be unusable.
         this.painter.seriesLook = this.deps.seriesLook();
+        this.painter.i18n = this.i18n();
         const onTop = (d: Drawing) => !this.isInterleaved(d) || this.lifted.has(d.id);
         const shown = this.onScreen();
         this.painter.paintAll(ctx, shown.filter(onTop), proj, this.deps.theme(), targets);
@@ -1044,7 +1072,7 @@ export class UserDrawingController implements IDrawingsRendererPort {
         // Armed-tool placement prompt (a type's `placementHint`): a bottom-center pill
         // telling the user what gesture to perform; it clears once placement starts.
         if (this.activeTool && !ghost) {
-            const hint = getDrawingType(this.activeTool)?.placementHint;
+            const hint = getDrawingType(this.activeTool, this.i18n())?.placementHint;
             if (hint) this.painter.paintPlacementHint(ctx, hint, this.deps.theme(), proj.width, proj.height);
         }
         // While placing, show control circles on the points clicked so far (so the user
@@ -1056,7 +1084,7 @@ export class UserDrawingController implements IDrawingsRendererPort {
         const my = m ? proj.yOf(m.point.price, m.paneId) : null;
         if (m && my != null) this.painter.paintSnapRing(ctx, proj.xOf(m.point.time), my, this.deps.theme());
         // The transient ruler paints on top of everything (until cleared on the next press/pan/zoom).
-        if (this.measure.isActive()) this.measure.paint(ctx, proj, this.deps.theme());
+        if (this.measure.isActive()) this.measure.paint(ctx, proj, this.deps.theme(), this.i18n());
         const marquee = this.interaction.marqueeRect();
         if (marquee) this.painter.paintMarquee(ctx, marquee);
     }
@@ -1280,6 +1308,12 @@ export class UserDrawingController implements IDrawingsRendererPort {
             // chose (or a deserialized document carries) always passes through untouched.
             if (i.doc.text && i.doc.text.color === undefined) {
                 i.doc.text = { ...i.doc.text, color: contrastColor(this.deps.theme().background) };
+            }
+            // A fresh annotation's starter text ("Note") is written in the chart's language;
+            // text the user already typed, or a deserialized document's, passes through.
+            const placeholder = i.doc.text ? deserializeDrawing(i.doc)?.placeholderText() : null;
+            if (i.doc.text && placeholder && i.doc.text.value === sourceText(placeholder)) {
+                i.doc.text = { ...i.doc.text, value: this.t(placeholder) };
             }
             const before = new Set(this.drawings.map((d) => d.id));
             this.intentCb?.(i);

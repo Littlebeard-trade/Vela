@@ -4,6 +4,21 @@
 import type { KeymapManager } from '../ui/keymap';
 import { Dialog } from '../ui/components/dialog';
 import { injectStyles } from '../ui/styles';
+import { msg } from '../core/i18n/message';
+import { englishTranslator } from '../core/i18n/translator';
+import type { MessageLike, Translator } from '../core/i18n/types';
+
+const TEXT = {
+    title: msg('widget.shortcuts.title', 'Keyboard shortcuts'),
+    mouse: msg('widget.shortcuts.mouse', 'Mouse'),
+    scroll: msg('widget.shortcuts.scrollHistory', 'Scroll through history'),
+    scrollKeys: msg('widget.shortcuts.scrollHistoryKeys', 'Shift+Scroll'),
+    measure: msg('widget.shortcuts.measure', 'Measure from the press point'),
+    measureKeys: msg('widget.shortcuts.measureKeys', 'Shift+Click'),
+    erase: msg('widget.shortcuts.deleteDrawing', 'Delete the drawing under the cursor'),
+    eraseKeys: msg('widget.shortcuts.deleteDrawingKeys', 'Middle-click'),
+    typing: msg('widget.shortcuts.typing', 'Typing a letter or 0 opens the symbol search; typing a digit from 1 to 9 opens the timeframe entry.'),
+};
 
 const STYLE_ID = 'vela-widget-shortcuts';
 const CSS = `
@@ -33,13 +48,17 @@ export class ShortcutsHelp {
     private readonly list: HTMLElement;
     private readonly keymap: KeymapManager;
 
-    constructor(keymap: KeymapManager, host?: HTMLElement, onOpenChange?: (open: boolean) => void) {
+    private readonly i18n: () => Translator;
+
+    /** `i18n` returns the shell's current translator; the panel reads it each time it opens. */
+    constructor(keymap: KeymapManager, host?: HTMLElement, onOpenChange?: (open: boolean) => void, i18n?: () => Translator) {
         this.keymap = keymap;
+        this.i18n = i18n ?? englishTranslator;
         const doc = (host ?? document.body).ownerDocument;
         injectStyles(STYLE_ID, CSS, doc);
         this.list = doc.createElement('div');
         this.dialog = new Dialog({
-            title: 'Keyboard shortcuts',
+            title: this.i18n().t(TEXT.title),
             host,
             closeOnInteractOutside: true,
             content: (body) => body.appendChild(this.list),
@@ -64,6 +83,9 @@ export class ShortcutsHelp {
 
     private refresh(): void {
         const doc = this.list.ownerDocument;
+        const i18n = this.i18n();
+        const t = (m: MessageLike): string => i18n.t(m);
+        this.dialog.titleEl.textContent = t(TEXT.title);
         this.list.replaceChildren();
         const addCategory = (text: string): void => {
             const cat = doc.createElement('div');
@@ -89,7 +111,7 @@ export class ShortcutsHelp {
             this.list.appendChild(row);
         };
         const byCategory = new Map<string, ReturnType<KeymapManager['bindings']>>();
-        for (const b of this.keymap.bindings()) {
+        for (const b of this.keymap.bindings(i18n)) {
             const bucket = byCategory.get(b.category) ?? [];
             bucket.push(b);
             byCategory.set(b.category, bucket);
@@ -100,14 +122,14 @@ export class ShortcutsHelp {
         }
         // Pointer gestures live outside the keymap — list them like bindings so the
         // panel stays the one complete reference.
-        addCategory('Mouse');
-        addRow('Scroll through history', ['Shift+Scroll']);
-        addRow('Measure from the press point', ['Shift+Click']);
-        addRow('Delete the drawing under the cursor', ['Middle-click']);
+        addCategory(t(TEXT.mouse));
+        addRow(t(TEXT.scroll), [t(TEXT.scrollKeys)]);
+        addRow(t(TEXT.measure), [t(TEXT.measureKeys)]);
+        addRow(t(TEXT.erase), [t(TEXT.eraseKeys)]);
         // The two type-to-act routes live outside the keymap (any-printable routing).
         const s = doc.createElement('div');
         s.className = 'vela-sh-static';
-        s.textContent = 'Typing a letter or 0 opens the symbol search; typing a digit from 1 to 9 opens the timeframe entry.';
+        s.textContent = t(TEXT.typing);
         this.list.appendChild(s);
     }
 }

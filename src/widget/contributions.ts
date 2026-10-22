@@ -8,6 +8,8 @@ import type { ScriptingEngine } from '../core/ports/ScriptingEngine';
 import type { SymbolDescriptor } from '../core/ports/DataProvider';
 import type { InputValue } from '../core/model/inputs';
 import type { IndicatorHandle } from '../core/IndicatorHandle';
+import type { MessageLike, Translator } from '../core/i18n/types';
+import { textOf } from '../core/i18n/text';
 import { TOPBAR_BUILTIN_IDS } from './topbar-composition';
 
 /** The runtime surface an action's `when`/`run` receives. */
@@ -40,6 +42,10 @@ export interface WidgetContext {
      *  (Dialog/Menu/Tooltip) from an action; without an explicit host they portal to
      *  the body, OUTSIDE the theme variables. A multi-chart shell hands its own root. */
     host: HTMLElement;
+    /** The shell's translator: `i18n.t(msg(...))` for text an action or panel renders,
+     *  `i18n.format` for its numbers and dates, `i18n.direction` for its layout. It follows
+     *  `setLocale`; listen to the shell's `locale:changed` to re-render. */
+    i18n: Translator;
     /** The widget's feedback pill (bottom-center, auto-hides). */
     toast(message: string, kind?: 'info' | 'success' | 'error'): void;
     /** Add a SCRIPT indicator to the active chart THROUGH THE SHELL — unlike the raw
@@ -112,8 +118,9 @@ export interface WidgetActionDescriptor {
     id: string;
     target: WidgetActionTarget;
     /** Always required, even icon-only: it is the button's aria-label and tooltip, the
-     *  mobile drawer row's text, and the context-menu item's label. */
-    label: string;
+     *  mobile drawer row's text, and the context-menu item's label. A message
+     *  (`msg(id, 'English')`) follows the shell's language; a plain string shows as is. */
+    label: MessageLike;
     /** Icon id from the `vela/ui` icon registry (register yours with `registerIcon`). */
     icon?: string;
     /** Topbar only: render the DESKTOP button icon-only, like the built-in tools — the
@@ -187,7 +194,7 @@ export interface SidePanelHeader {
     slot: HTMLElement;
     /** Replace the header title (an empty string hides it). The topbar toggle keeps the
      *  DECLARED `title` as its tooltip. */
-    setTitle(title: string): void;
+    setTitle(title: MessageLike): void;
     /** Whether the panel covers every chart right now (see `maximizable`). */
     readonly maximized: boolean;
     /** Maximize the panel over the shell's charts, or restore it — what its header button
@@ -208,8 +215,8 @@ export interface SidePanelHeader {
 export interface SidePanelDescriptor {
     /** Stable id — re-registering an id replaces it. Also the key its width persists under. */
     id: string;
-    /** Header title, and the tooltip of its topbar button. */
-    title: string;
+    /** Header title, and the tooltip of its topbar button. A message follows the shell's language. */
+    title: MessageLike;
     /** Icon id from the `vela/ui` icon registry (register yours with `registerIcon`). */
     icon: string;
     /** Sort key among the panel buttons (ascending; default 100 — after the built-ins). */
@@ -352,7 +359,8 @@ export interface LegendActionDescriptor {
     id: string;
     /** Icon id from the `vela/ui` icon registry (register yours with `registerIcon`). */
     icon: string;
-    tooltip: string;
+    /** Hover text. A message follows the chart's language. */
+    tooltip: MessageLike;
     /** Sort key within the contributed group (ascending; default 0). */
     order?: number;
     /** Per-indicator gate — omitted ⇒ shown on every row. */
@@ -395,7 +403,7 @@ export function legendActionsProviderFor(chart: Vela, context: () => WidgetConte
         // in-place code update since then must not hand the action the old source.
         return legendActions()
             .filter((d) => !d.when || d.when(info))
-            .map((d) => ({ id: d.id, icon: d.icon, tooltip: d.tooltip, run: () => d.run(context(), infoOf(find() ?? handle)) }));
+            .map((d) => ({ id: d.id, icon: d.icon, tooltip: textOf(chart.i18n, d.tooltip), run: () => d.run(context(), infoOf(find() ?? handle)) }));
     };
 }
 
@@ -405,10 +413,10 @@ export function legendActionsProviderFor(chart: Vela, context: () => WidgetConte
  *  button whose `run` receives the shell's {@link WidgetContext} and the row's
  *  indicator — the same signature as a legend action's `run`. */
 export type LegendCalloutItem =
-    | { type: 'text'; text: string }
+    | { type: 'text'; text: MessageLike }
     | {
           type: 'button';
-          label: string;
+          label: MessageLike;
           /** Emphasized (selection-colored) button — the panel's main action. */
           primary?: boolean;
           /** Close the panel after `run` (default true). */
@@ -418,7 +426,7 @@ export type LegendCalloutItem =
 
 /** The panel a clickable callout deploys: an optional heading over ordered blocks. */
 export interface LegendCalloutContent {
-    title?: string;
+    title?: MessageLike;
     items: LegendCalloutItem[];
 }
 
@@ -430,8 +438,8 @@ export interface LegendCalloutSpec {
     background: string;
     /** Icon ink (default: the legend row's text color). */
     color?: string;
-    /** Hover text; also the bubble's accessible name. */
-    tooltip: string;
+    /** Hover text; also the bubble's accessible name. A message follows the chart's language. */
+    tooltip: MessageLike;
     /** Deployed panel — presence makes the bubble clickable. */
     content?: LegendCalloutContent;
 }
@@ -488,6 +496,7 @@ export function legendCalloutsProviderFor(chart: Vela, context: () => WidgetCont
         if (!handle) return [];
         const info: LegendIndicatorInfo = { id: handle.id, title: handle.title, ...(handle.source !== undefined ? { source: handle.source } : {}) };
         const views: LegendCalloutView[] = [];
+        const t = (m: MessageLike): string => textOf(chart.i18n, m);
         for (const d of legendCallouts()) {
             const spec = d.callout(info);
             if (!spec) continue;
@@ -496,17 +505,17 @@ export function legendCalloutsProviderFor(chart: Vela, context: () => WidgetCont
                 icon: spec.icon,
                 background: spec.background,
                 ...(spec.color !== undefined ? { color: spec.color } : {}),
-                tooltip: spec.tooltip,
+                tooltip: t(spec.tooltip),
                 ...(spec.content !== undefined
                     ? {
                           content: {
-                              ...(spec.content.title !== undefined ? { title: spec.content.title } : {}),
+                              ...(spec.content.title !== undefined ? { title: t(spec.content.title) } : {}),
                               items: spec.content.items.map((item) =>
                                   item.type === 'text'
-                                      ? item
+                                      ? { type: 'text' as const, text: t(item.text) }
                                       : {
                                             type: 'button' as const,
-                                            label: item.label,
+                                            label: t(item.label),
                                             ...(item.primary !== undefined ? { primary: item.primary } : {}),
                                             ...(item.close !== undefined ? { close: item.close } : {}),
                                             run: () => item.run(context(), info),

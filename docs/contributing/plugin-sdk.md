@@ -113,6 +113,11 @@ registerRendererLayer({
 });
 ```
 
+**Text reads left to right in every page.** The plot never mirrors, so the layer canvas
+carries `dir="ltr"`: a 2D context you open on it lays text out left to right even when the
+host page is right to left, and a sign stays in front of its number. Leave the context's
+`direction` at its default (`'inherit'`) to keep that.
+
 **Ownership — layers backed by a native indicator.** When a mounted native indicator's
 type equals a layer's id, that indicator OWNS the layer, and the layer joins the chart's
 normal object model instead of sitting outside it:
@@ -790,6 +795,40 @@ And the whole **authoring surface**, so an engine can be built as its own packag
 The full contract — prepare/execute, the session levers, the data inversion, the
 backfill run policy, packaging and registration — is
 [Adding an Engine](./adding-an-engine.md).
+
+## Messages and formatting — `msg` / `registerLocale`
+
+A plugin's text and numbers follow the chart's locale through the same message system the
+core uses ([Localization](../user/localization.md)):
+
+```ts
+// In the plugin: ids are dotted and start with your own prefix; the English text is the source.
+import { msg, type LocalePack } from '@luxalgo/vela/plugin';
+
+const TITLE = msg('acme.flow.title', 'Order flow');
+const TRADES = msg('acme.flow.trades', '{count, plural, one {# trade} other {# trades}}');
+
+// Packs are plain objects the plugin exports, one per language.
+export const acmeDe: LocalePack = { locale: 'de', messages: { 'acme.flow.title': 'Orderfluss' } };
+```
+
+```ts
+// In the host: registering is a call, never an import side effect.
+import { registerLocale } from '@luxalgo/vela/plugin';
+import { acmeDe } from 'acme-vela-plugin';
+
+registerLocale(acmeDe);
+```
+
+- **Actions, panels and attachments** read the shell's translator as `ctx.i18n`:
+  `ctx.i18n.t(TITLE)`. It follows `setLocale`; re-render on the shell's `locale:changed`.
+- **Renderer layers** get the chart's translator as `args.i18n` in every `render(args)`:
+  `args.i18n.t(TRADES, { count })` for painted text and `args.i18n.format.compact(volume)`
+  for numbers, so a layer reads like the axes beside it.
+- **Typed ids:** augment the catalog so hosts can override your messages with type checking:
+  `declare module '@luxalgo/vela/plugin' { interface VelaMessageCatalog { 'acme.flow.title': string } }`.
+- **Identities stay English.** Translate what a user reads, never a value that is stored
+  or compared: option values saved in layouts, ids, and anything a script reads.
 
 ## Widget integration
 

@@ -1,6 +1,14 @@
 import type { VelaTheme } from '../../../core/options';
 import type { Projector } from '../../../core/drawings';
-import { formatDuration } from '../../../core/drawings';
+import { msg } from '../../../core/i18n/message';
+import { localizeNumberText } from '../../../core/i18n/text';
+import { englishTranslator } from '../../../core/i18n/translator';
+import type { Translator } from '../../../core/i18n/types';
+
+const TEXT = {
+    priceChange: msg('drawing.ruler.priceChange', '{change} ({percent}%)'),
+    barsAndDuration: msg('drawing.ruler.barsAndDuration', '{count, plural, one {{bars} bar} other {{bars} bars}}, {duration}'),
+};
 import { BEARISH, BULLISH } from '../../../core/palette';
 
 /** Signed value with 2 decimals (e.g. "+12.34"). */
@@ -83,7 +91,7 @@ export class MeasureOverlay {
         this.end = null;
     }
 
-    paint(ctx: CanvasRenderingContext2D, proj: Projector, theme: VelaTheme): void {
+    paint(ctx: CanvasRenderingContext2D, proj: Projector, theme: VelaTheme, i18n: Translator = englishTranslator()): void {
         if (!this.start || !this.end) return;
         const { x: x1, y: y1 } = this.start;
         const { x: x2, y: y2 } = this.end;
@@ -130,9 +138,10 @@ export class MeasureOverlay {
         ctx.fill();
         ctx.restore();
 
+        const duration = i18n.format.duration(p2.time - p1.time, { style: 'span', surface: 'drawing' });
         this.paintLabel(ctx, proj, theme, midX, top, bot, color, [
-            `${signed(priceDiff)} (${signed(pct)}%)`,
-            bars != null ? `${bars} bars · ${formatDuration(p2.time - p1.time)}` : formatDuration(p2.time - p1.time),
+            i18n.t(TEXT.priceChange, { change: localizeNumberText(signed(priceDiff), i18n), percent: localizeNumberText(signed(pct), i18n) }),
+            bars != null ? i18n.t(TEXT.barsAndDuration, { count: bars, bars: localizeNumberText(String(bars), i18n), duration }) : duration,
         ]);
     }
 

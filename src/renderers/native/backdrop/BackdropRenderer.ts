@@ -4,6 +4,7 @@ import type { SceneGraph } from '../core/SceneGraph';
 import { timeTicks } from '../chrome/ticks';
 import { PriceAxisTickSource } from '../chrome/priceAxisTicks';
 import { tzOffsetMs } from '../chrome/tz';
+import { beginPlotFrame } from '../core/plotDirection';
 
 /** Clip one time-band rectangle to its permitted horizontal paint interval. */
 export function clipHighlightRect(x1: number, x2: number, left: number, right: number): { x: number; width: number } | null {
@@ -59,7 +60,7 @@ export class BackdropRenderer {
         if (!ctx || !canvas) return;
 
         const dpr = coords.dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        beginPlotFrame(ctx, dpr);
         ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
 
         // Same gate as the geometry backend: no grid before data reaches the view.

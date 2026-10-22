@@ -1,3 +1,6 @@
+import { msg } from '../../../core/i18n/message';
+import { textOf } from '../../../core/i18n/text';
+import type { MessageLike, Translator } from '../../../core/i18n/types';
 import { icon } from '../../../core/icons';
 import type { VelaTheme } from '../../../core/options';
 
@@ -21,7 +24,18 @@ export interface PaneControlsDeps {
     onMove(paneId: string, dir: 'up' | 'down'): void;
     onToggleCollapse(paneId: string): void;
     onToggleMaximize(paneId: string): void;
+    /** The chart's translator (button tooltips). Absent: English. */
+    i18n?(): Translator;
 }
+
+const TEXT = {
+    moveUp: msg('chart.paneControls.moveUp', 'Move panel up'),
+    moveDown: msg('chart.paneControls.moveDown', 'Move panel down'),
+    expand: msg('chart.paneControls.expand', 'Expand panel'),
+    collapse: msg('chart.paneControls.collapse', 'Collapse panel'),
+    restore: msg('chart.paneControls.restore', 'Restore panel'),
+    maximize: msg('chart.paneControls.maximize', 'Maximize panel'),
+};
 
 const ICONS = {
     up: icon('chevron-up'),
@@ -132,13 +146,17 @@ export class PaneControls {
         this.reposition();
     }
 
+    private t(m: MessageLike): string {
+        return textOf(this.deps.i18n?.() ?? null, m);
+    }
+
     private buildButtons(cluster: HTMLDivElement, p: PaneControlView): void {
         cluster.textContent = '';
         if (p.kind === 'study') {
-            cluster.appendChild(this.button(ICONS.up, 'Move pane up', p.index <= 1, () => this.deps.onMove(p.id, 'up'), { role: 'up' }));
-            cluster.appendChild(this.button(ICONS.down, 'Move pane down', p.index >= p.count - 1, () => this.deps.onMove(p.id, 'down'), { role: 'down' }));
+            cluster.appendChild(this.button(ICONS.up, this.t(TEXT.moveUp), p.index <= 1, () => this.deps.onMove(p.id, 'up'), { role: 'up' }));
+            cluster.appendChild(this.button(ICONS.down, this.t(TEXT.moveDown), p.index >= p.count - 1, () => this.deps.onMove(p.id, 'down'), { role: 'down' }));
             cluster.appendChild(
-                this.button(p.collapsed ? ICONS.expand : ICONS.collapse, p.collapsed ? 'Expand pane' : 'Collapse pane', false, () => this.deps.onToggleCollapse(p.id), {
+                this.button(p.collapsed ? ICONS.expand : ICONS.collapse, this.t(p.collapsed ? TEXT.expand : TEXT.collapse), false, () => this.deps.onToggleCollapse(p.id), {
                     role: 'collapse',
                     // A collapsed pane keeps its expand button permanently visible; the "selected"
                     // white-on-black chip makes it read as an active state the user can always click.
@@ -150,7 +168,7 @@ export class PaneControls {
         // a lone price pane can't be "expanded", so it gets no button (and thus no cluster).
         if (p.count > 1) {
             cluster.appendChild(
-                this.button(p.maximized ? ICONS.restore : ICONS.maximize, p.maximized ? 'Restore pane' : 'Maximize pane', false, () => this.deps.onToggleMaximize(p.id), {
+                this.button(p.maximized ? ICONS.restore : ICONS.maximize, this.t(p.maximized ? TEXT.restore : TEXT.maximize), false, () => this.deps.onToggleMaximize(p.id), {
                     role: 'maximize',
                     // Same inverse-chip treatment as the collapsed pane's expand toggle: the
                     // maximized state must read as an active state, not just a swapped glyph.

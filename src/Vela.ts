@@ -27,6 +27,8 @@ import { registerBuiltinChartTypes } from './chart-types/builtins';
 import { registerVolume } from './core/native-indicators/volume';
 import { registerVpvr } from './core/native-indicators/vpvr';
 import { registerClassicIndicators } from './core/native-indicators/classics';
+import { LocaleState, pickLocalization } from './core/i18n/translator';
+import type { LocalizationOptions, Translator } from './core/i18n/types';
 
 const asError = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err)));
 
@@ -67,6 +69,8 @@ export class Vela {
     private readonly drawingsControl: DrawingsControl;
     private readonly marksControl: MarksControl;
     private readonly replayControl: ReplayControl;
+    private readonly localeState: LocaleState;
+    private readonly rendererPort: IChartRenderer;
 
     constructor(container: HTMLElement | string, options: VelaOptions = {}, deps: VelaDeps = {}) {
         registerBuiltinChartTypes(); // built-in chart types through the public SDK registry (idempotent)
@@ -94,6 +98,8 @@ export class Vela {
             );
         }
         const renderer = deps.renderer ?? new RendererClass(display);
+        this.rendererPort = renderer;
+        this.localeState = new LocaleState(pickLocalization(options));
         const engines = deps.engines ?? [];
         // Default: a multi-provider registry feed (caches closed bars internally). No
         // provider is bundled — register one with `chart.data.registerProvider(...)`;
@@ -130,6 +136,40 @@ export class Vela {
         this.drawingsControl = new DrawingsControl(this.orchestrator.drawings);
         this.marksControl = new MarksControl(this.orchestrator.marks);
         this.replayControl = new ReplayControl(this.orchestrator);
+        this.orchestrator.setTranslator(this.localeState);
+        this.pushLocalization();
+    }
+
+    /**
+     * The chart's translator: its resolved locale and direction, `t()` for messages, and
+     * `format` for numbers and dates in the chart's locale. The same object for the
+     * chart's lifetime; it reads the new settings after {@link setLocale}.
+     */
+    get i18n(): Translator {
+        return this.localeState;
+    }
+
+    /**
+     * Change the chart's language, direction or formatting at runtime — a locale tag
+     * (`chart.setLocale('de')`) or any {@link LocalizationOptions} fields. Fields you pass
+     * replace their current value (an explicit `undefined` restores the default); the
+     * others are kept. The chart re-renders its text, axes and readouts in place (no
+     * indicator re-run) and emits `locale:changed`. Register the locale's pack
+     * (`registerLocale`) first for translated text.
+     */
+    setLocale(next: string | LocalizationOptions): this {
+        this.localeState.update(typeof next === 'string' ? { locale: next } : pickLocalization(next));
+        this.orchestrator.relocalize();
+        this.pushLocalization();
+        this.orchestrator.events.emit('locale:changed', { locale: this.localeState.locale, direction: this.localeState.direction });
+        return this;
+    }
+
+    /** Hand the renderer the translator and the root attributes the host asked for: `lang`
+     *  once a locale is set, `dir` once a direction is (unset, the host page decides). */
+    private pushLocalization(): void {
+        const s = this.localeState;
+        this.rendererPort.setLocalization?.(s, { lang: s.localeExplicit ? s.locale : null, dir: s.directionExplicit ? s.direction : null });
     }
 
     /**

@@ -1,6 +1,8 @@
 // Price-scale drawer (mobile) — opened by a long-press on the price axis. Mirrors the
 // desktop right-click price-axis menu: auto / invert / scale modes / label & level
 // toggles, plus a hop into the full Scales settings tab.
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
 import { Drawer } from '../ui/components/drawer';
 import { iconEl } from '../ui/icons';
 import { injectStyles } from '../ui/styles';
@@ -43,6 +45,10 @@ const CSS = `
 }
 `;
 
+const TEXT = {
+    title: msg('widget.priceScaleDrawer.title', 'Price scale'),
+};
+
 export interface PriceScaleDrawerOptions {
     host: HTMLElement;
     /** Live chart (reads/writes scale features). */
@@ -58,13 +64,14 @@ export class PriceScaleDrawer {
 
     constructor(private readonly opts: PriceScaleDrawerOptions) {
         injectStyles(STYLE_ID, CSS, opts.host.ownerDocument);
-        this.drawer = new Drawer({ host: opts.host, title: 'Price scale', onOpenChange: opts.onOpenChange });
+        this.drawer = new Drawer({ host: opts.host, title: textOf(opts.chart()?.i18n, TEXT.title), onOpenChange: opts.onOpenChange });
     }
 
     open(): void {
         const chart = this.opts.chart();
         const panes = chart?.renderer.get('paneScales');
         this.pane = Array.isArray(panes) ? paneScaleAt(panes as PaneScaleInfo[], this.opts.pressY()) : null;
+        this.drawer.setTitle(textOf(chart?.i18n, TEXT.title));
         this.render();
         this.drawer.show();
     }
@@ -96,7 +103,7 @@ export class PriceScaleDrawer {
             priceLabel: this.flag('priceLabel'),
             countdown: this.flag('countdown'),
             priceLine: this.flag('currentPriceLine'),
-        });
+        }, chart.i18n);
 
         const list = doc.createElement('div');
         list.className = 'vela-psd-list';
@@ -122,7 +129,7 @@ export class PriceScaleDrawer {
 
         for (const item of items) {
             if (item.id === 'labels' && item.submenu) {
-                section('Labels');
+                section(item.label);
                 for (const sub of item.submenu) {
                     row(sub.label, {
                         checked: sub.checked,
@@ -136,7 +143,7 @@ export class PriceScaleDrawer {
                 continue;
             }
             if (item.id === 'levels' && item.submenu) {
-                section('Levels');
+                section(item.label);
                 for (const sub of item.submenu) {
                     row(sub.label, {
                         checked: sub.checked,

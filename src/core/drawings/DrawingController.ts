@@ -7,6 +7,7 @@ import type { DrawingSeriesGateway } from './series';
 import type { DrawingsOption } from './toolbar';
 import { getDrawingType } from './registry';
 import { buildToolbar } from './toolbar';
+import type { Translator } from '../i18n/types';
 import { DrawingStore } from './DrawingStore';
 import { DrawingHistory } from './DrawingHistory';
 import { createDrawing, deserializeDrawing } from './registry';
@@ -56,6 +57,8 @@ export class DrawingController {
     private readonly history = new DrawingHistory();
     private readonly port: IDrawingsRendererPort | null;
     private readonly enabled: boolean;
+    /** The toolbar as last configured — re-read in the chart's language on {@link relocalize}. */
+    private toolbarOption: DrawingsOption | undefined;
     private activeTool: DrawingTypeKey | null = null;
     /** Mirror of the renderer's sticky magnet mode (the renderer default is 'off'). */
     private snapMode: SnapMode = 'off';
@@ -78,11 +81,14 @@ export class DrawingController {
         private readonly events: TypedEventBus<VelaEventMap>,
         option: DrawingsOption | undefined,
         seriesGateway?: DrawingSeriesGateway,
+        /** The chart's translator: the toolbar reaches the renderer labelled in its language. */
+        private readonly i18n: () => Translator | null = () => null,
     ) {
         this.enabled = !!renderer.capabilities.userDrawings && !!renderer.userDrawingsPort;
         this.port = this.enabled ? renderer.userDrawingsPort! : null;
+        this.toolbarOption = option;
         if (this.port) {
-            const { definition, visible } = buildToolbar(option);
+            const { definition, visible } = buildToolbar(option, this.i18n());
             this.port.setToolbar(definition);
             this.port.showToolbar(visible);
             if (seriesGateway) this.port.setSeriesGateway?.(seriesGateway);
@@ -275,7 +281,13 @@ export class DrawingController {
     }
 
     setToolbar(option: DrawingsOption): void {
-        this.port?.setToolbar(buildToolbar(option).definition);
+        this.toolbarOption = option;
+        this.port?.setToolbar(buildToolbar(option, this.i18n()).definition);
+    }
+
+    /** The chart's language changed: hand the renderer the toolbar relabelled in it. */
+    relocalize(): void {
+        this.port?.setToolbar(buildToolbar(this.toolbarOption, this.i18n()).definition);
     }
 
     /** Display (or clear) another chart's in-progress placement as a ghost — silently

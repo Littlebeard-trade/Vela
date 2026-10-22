@@ -6,6 +6,7 @@ import type { Vela } from '../Vela';
 import type { WidgetContext } from '../widget/contributions';
 import type { ChartCell } from './ChartCell';
 import type { WorkspaceReplay } from './WorkspaceReplay';
+import type { Translator } from '../core/i18n/types';
 
 /** The extended context a workspace hands to contributed actions/attachments. */
 export interface WorkspaceWidgetContext extends WidgetContext {
@@ -31,6 +32,8 @@ export interface ContextHost {
     togglePanel(id: string, open?: boolean): void;
     dockStrip(el: HTMLElement): () => void;
     root: HTMLElement;
+    /** The workspace's translator (one object for its lifetime). */
+    i18n: Translator;
     toast(message: string, kind?: 'info' | 'success' | 'error'): void;
     /** Debounced dirty mark — third-party persistable state changed (`ctx.stateChanged()`). */
     stateDirty(): void;
@@ -68,6 +71,7 @@ export function buildContext(host: ContextHost): WorkspaceWidgetContext {
         togglePanel: (id, open) => host.togglePanel(id, open),
         dockStrip: (el) => host.dockStrip(el),
         host: host.root,
+        i18n: host.i18n,
         toast: (message, kind) => host.toast(message, kind),
         addIndicator: (entry) => host.active()?.addExternalIndicator(entry),
         addNativeIndicator: (type) => host.active()?.addNative(type),

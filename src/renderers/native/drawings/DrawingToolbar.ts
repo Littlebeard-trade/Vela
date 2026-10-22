@@ -6,6 +6,30 @@ import { applyChromeTokens } from '../../shared/theme-tokens';
 import { attachChromeTooltip } from '../../shared/chrome-tooltip';
 import { announceSurface } from '../../../ui/surface-events';
 import { holdForExit, type SurfaceExit } from '../../../ui/surface-exit';
+import { msg } from '../../../core/i18n/message';
+import { textOf, upperCase } from '../../../core/i18n/text';
+import type { MessageLike, Translator } from '../../../core/i18n/types';
+
+const TEXT = {
+    cursor: msg('drawing.toolbar.cursor', 'Cursor'),
+    measure: msg('drawing.toolbar.measure', 'Measure'),
+    eraser: msg('drawing.toolbar.eraser', 'Eraser (click/drag to delete)'),
+    stay: msg('drawing.toolbar.stay', 'Stay in drawing mode'),
+    sync: msg('drawing.toolbar.sync', 'Sync drawings on all charts'),
+    collapse: msg('drawing.toolbar.collapse', 'Collapse toolbar'),
+    expand: msg('drawing.toolbar.expand', 'Expand toolbar'),
+    removeFavorite: msg('drawing.toolbar.removeFavorite', 'Remove from favorites'),
+    addFavorite: msg('drawing.toolbar.addFavorite', 'Add to favorites'),
+    more: msg('drawing.toolbar.more', '{tool} — more'),
+    magnetSnap: msg('drawing.toolbar.magnetSnap', 'Magnet snap'),
+    magnetOff: msg('drawing.toolbar.magnetSnapOff', 'Magnet snap: Off'),
+    magnetWeak: msg('drawing.toolbar.magnetSnapWeak', 'Magnet snap: Weak'),
+    magnetStrong: msg('drawing.toolbar.magnetSnapStrong', 'Magnet snap: Strong'),
+    magnet: msg('drawing.toolbar.magnet', 'Magnet'),
+    off: msg('drawing.toolbar.magnet.off', 'Off'),
+    weak: msg('drawing.toolbar.magnet.weak', 'Weak'),
+    strong: msg('drawing.toolbar.magnet.strong', 'Strong'),
+};
 
 /** Expanded bar width in px — a docked host's left-gutter reservation must match it. */
 export const TOOLBAR_WIDTH = 44;
@@ -33,6 +57,9 @@ export interface DrawingToolbarOptions {
      *  linked — edits and removals follow (a multi-chart host's concern — a
      *  single-chart bar omits the callback and never shows it). */
     onDrawingsSync?: (on: boolean) => void;
+    /** The chart's (or the workspace's) translator, read each time the bar renders text.
+     *  Absent: English. */
+    i18n?: () => Translator;
 }
 
 /**
@@ -92,6 +119,7 @@ export class DrawingToolbar {
     private readonly dock: 'absolute' | 'static';
     private readonly onCollapse: (collapsed: boolean) => void;
     private readonly onDrawingsSync: ((on: boolean) => void) | null;
+    private readonly i18n: (() => Translator) | null;
 
     constructor(
         private readonly host: HTMLElement,
@@ -109,11 +137,22 @@ export class DrawingToolbar {
         this.dock = options.dock ?? 'absolute';
         this.onCollapse = options.onCollapse ?? (() => {});
         this.onDrawingsSync = options.onDrawingsSync ?? null;
+        this.i18n = options.i18n ?? null;
         ensureStyles();
         this.root = document.createElement('div');
         this.root.className = 'vela-dtb';
         this.styleRoot();
         host.appendChild(this.root);
+    }
+
+    private t(m: MessageLike, values?: Record<string, string | number>): string {
+        return textOf(this.i18n?.() ?? null, m, values);
+    }
+
+    /** Re-read every label in the current language (the chart's language changed). */
+    relabel(): void {
+        this.closeFlyout();
+        this.rebuild();
     }
 
     /** Live divider/border ink — the option override, else the current theme's border
@@ -171,7 +210,7 @@ export class DrawingToolbar {
     private paintStar(el: HTMLElement, type: DrawingTypeKey): void {
         const on = this.favorites.has(type);
         el.classList.toggle('vela-fav', on);
-        el.setAttribute('aria-label', on ? 'Remove from favorites' : 'Add to favorites');
+        el.setAttribute('aria-label', this.t(on ? TEXT.removeFavorite : TEXT.addFavorite));
         el.setAttribute('aria-pressed', on ? 'true' : 'false');
         el.innerHTML = sizedIcon(on ? STAR_FILLED_ICON : STAR_ICON);
     }
@@ -213,7 +252,7 @@ export class DrawingToolbar {
         this.root.replaceChildren();
         this.groupCells.clear();
         this.groupIcons.clear();
-        this.cursorBtn = this.makeButton(CURSOR_ICON, 'Cursor', () => this.onCursorClick());
+        this.cursorBtn = this.makeButton(CURSOR_ICON, this.t(TEXT.cursor), () => this.onCursorClick());
         this.root.appendChild(this.cursorBtn);
         if (this.def.groups.length > 0) this.root.appendChild(this.divider());
         for (const g of this.def.groups) {
@@ -223,20 +262,20 @@ export class DrawingToolbar {
         }
         // Measure ruler + eraser + magnet — renderer-local modes, not persistent-drawing tools.
         this.root.appendChild(this.divider());
-        this.measureBtn = this.makeButton(RULER_ICON, 'Measure', () => this.onMeasure());
+        this.measureBtn = this.makeButton(RULER_ICON, this.t(TEXT.measure), () => this.onMeasure());
         this.root.appendChild(this.measureBtn);
-        this.eraserBtn = this.makeButton(ERASER_ICON, 'Eraser (click/drag to delete)', () => this.onEraser());
+        this.eraserBtn = this.makeButton(ERASER_ICON, this.t(TEXT.eraser), () => this.onEraser());
         this.root.appendChild(this.eraserBtn);
         this.root.appendChild(this.makeMagnetCell());
-        this.stayBtn = this.makeButton(STAY_ICON, 'Stay in drawing mode', () => this.toggleStay());
+        this.stayBtn = this.makeButton(STAY_ICON, this.t(TEXT.stay), () => this.toggleStay());
         this.root.appendChild(this.stayBtn);
         // Drawings-sync toggle — only a multi-chart host provides the callback.
         if (this.onDrawingsSync) {
-            this.syncBtn = this.makeButton(SYNC_ICON, 'Sync drawings on all charts', () => this.toggleDrawingsSync());
+            this.syncBtn = this.makeButton(SYNC_ICON, this.t(TEXT.sync), () => this.toggleDrawingsSync());
             this.root.appendChild(this.syncBtn);
         }
         // Collapse/expand toggle — pinned to the bottom; the only child a collapsed strip shows.
-        this.collapseBtn = this.makeButton(COLLAPSE_ICON, 'Collapse toolbar', () => this.toggleCollapsed());
+        this.collapseBtn = this.makeButton(COLLAPSE_ICON, this.t(TEXT.collapse), () => this.toggleCollapsed());
         this.collapseBtn.classList.add('vela-dtb-collapse');
         this.root.appendChild(this.collapseBtn);
         this.paintMeasure();
@@ -261,7 +300,7 @@ export class DrawingToolbar {
     private paintCollapse(): void {
         const b = this.collapseBtn;
         if (!b) return;
-        const label = this.collapsed ? 'Expand toolbar' : 'Collapse toolbar';
+        const label = this.t(this.collapsed ? TEXT.expand : TEXT.collapse);
         b.innerHTML = hitHtml(this.collapsed ? EXPAND_ICON : COLLAPSE_ICON, 12);
         b.setAttribute('aria-label', label);
         this.tipText.set(b, label);
@@ -291,7 +330,7 @@ export class DrawingToolbar {
             arrow = document.createElement('button'); // its own hover target, hidden until the cell is hovered (CSS)
             arrow.type = 'button';
             arrow.className = 'vela-dtb-arrow';
-            arrow.setAttribute('aria-label', `${label} — more`);
+            arrow.setAttribute('aria-label', this.t(TEXT.more, { tool: label }));
             arrow.innerHTML = arrowHitHtml(ARROW_ICON);
             arrow.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -307,7 +346,7 @@ export class DrawingToolbar {
 
     private makeGroupCell(g: ToolGroup): HTMLElement {
         const multi = g.tools.length > 1;
-        const { cell, icon } = this.makeCell(g.label, {
+        const { cell, icon } = this.makeCell(this.t(g.label), {
             multi,
             onIcon: () => this.onGroupIconClick(g),
             onArrow: multi ? () => this.onArrowClick(g) : undefined,
@@ -318,7 +357,7 @@ export class DrawingToolbar {
     }
 
     private makeMagnetCell(): HTMLElement {
-        const { cell, icon } = this.makeCell('Magnet snap', {
+        const { cell, icon } = this.makeCell(this.t(TEXT.magnetSnap), {
             iconSvg: MAGNET_ICON,
             multi: true,
             onIcon: () => this.toggleMagnet(),
@@ -409,8 +448,7 @@ export class DrawingToolbar {
         const cell = this.magnetCell;
         const icon = this.magnetIcon;
         if (!cell || !icon) return;
-        const label = this.magnetMode === 'off' ? 'Off' : this.magnetMode === 'weak' ? 'Weak' : 'Strong';
-        this.tipText.set(cell, `Magnet snap: ${label}`);
+        this.tipText.set(cell, this.t(this.magnetMode === 'off' ? TEXT.magnetOff : this.magnetMode === 'weak' ? TEXT.magnetWeak : TEXT.magnetStrong));
         const on = this.magnetMode !== 'off';
         cell.dataset.active = on ? '1' : '';
         icon.style.opacity = on ? '1' : '0.5';
@@ -507,14 +545,14 @@ export class DrawingToolbar {
             const section = sections[si]!;
             if (section.label) {
                 if (si > 0) fly.appendChild(this.flyoutSeparator());
-                fly.appendChild(this.flyoutHeader(section.label));
+                fly.appendChild(this.flyoutHeader(this.t(section.label)));
             }
             for (const tool of section.tools) {
                 fly.appendChild(
                     this.makeFlyoutItem({
                         icon: tool.icon,
                         badge,
-                        label: tool.label,
+                        label: this.t(tool.label),
                         selected: tool.type === this.active,
                         shortcut: this.shortcuts.get(tool.type),
                         onSelect: () => this.onArm(tool.type),
@@ -533,16 +571,16 @@ export class DrawingToolbar {
         const cell = this.magnetCell;
         if (!cell) return;
         const fly = this.beginFlyout(MAGNET_ID, cell);
-        fly.appendChild(this.flyoutHeader('Magnet'));
-        const modes: readonly [SnapMode, string][] = [
-            ['off', 'Off'],
-            ['weak', 'Weak'],
-            ['strong', 'Strong'],
+        fly.appendChild(this.flyoutHeader(this.t(TEXT.magnet)));
+        const modes: readonly [SnapMode, MessageLike][] = [
+            ['off', TEXT.off],
+            ['weak', TEXT.weak],
+            ['strong', TEXT.strong],
         ];
         for (const [mode, label] of modes) {
             fly.appendChild(
                 this.makeFlyoutItem({
-                    label,
+                    label: this.t(label),
                     selected: mode === this.magnetMode,
                     onSelect: () => {
                         this.applyMagnet(mode);
@@ -557,7 +595,7 @@ export class DrawingToolbar {
     private flyoutHeader(text: string): HTMLElement {
         const t = this.theme;
         const header = document.createElement('div');
-        header.textContent = text.toUpperCase();
+        header.textContent = upperCase(text, this.i18n?.().locale);
         header.style.cssText =
             `padding:6px 12px 2px 8px;font:var(--vela-font-size-sm) ${t.fontFamily};font-weight:600;letter-spacing:0.04em;` +
             `color:var(--vela-fg-muted);user-select:none;`;
@@ -679,7 +717,7 @@ export class DrawingToolbar {
         iconBtn.innerHTML = hitHtml(tool?.icon ?? '');
         // The tip names the tool the icon arms (the group's last-used), not the group label.
         const cell = this.groupCells.get(group.id);
-        if (cell) this.tipText.set(cell, tool?.label ?? group.label);
+        if (cell) this.tipText.set(cell, this.t(tool?.label ?? group.label));
     }
 
     /** Reconcile active tints from state (armed group / open flyout / cursor / modes). Active is a

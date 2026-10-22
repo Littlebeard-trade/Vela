@@ -180,10 +180,20 @@ descriptors working when multiple charts exist.
 - New components follow the uniform skeleton (`controller.ts` + `view.ts` + `styles.css`
   - `index.ts`) documented in `docs/contributing/adding-a-ui-component.md`.
 
+**Interface text.**
+
+- New user-facing text goes through `msg('area.component.key', 'English')` with a stable
+  id (derive it from an existing key: a type id, an input key, a settings row id); no
+  English literals in UI code. Run `npm run i18n:extract` after adding one.
+- Never key logic on display text. Ids, option values and saved names stay English; show
+  them through a message.
+
 **Style and prose.**
 
 - **Everything in the repo is English** — code, comments, commits, docs — regardless of
-  the conversation language.
+  the conversation language. The one exception: translation message files under
+  `src/locales/`, each holding one language's UI text keyed by the English source's
+  message ids.
 - **Never name other charting products in code, comments, or commit messages.** Describe
   features by their own behavior, not by whose product they resemble.
 - Comments state constraints the code can't show. No "what the next line does," no

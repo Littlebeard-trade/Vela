@@ -39,6 +39,35 @@ import { prefixedSymbol, type CellState } from '../state/document';
 import { parseSymbol } from '../data/ProviderRegistry';
 import { isExchangeTimezone, normalizeTimezone, resolveTimezone, timezoneMenuRows } from '../core/timezones';
 import { applyPlotOverlayTokens } from '../ui';
+import type { LocalizationOptions, MessageLike, Translator } from '../core/i18n/types';
+import { msg } from '../core/i18n/message';
+import { sourceText, textOf } from '../core/i18n/text';
+import { nativeIndicatorEntry } from '../core/native-indicators/NativeIndicator';
+import { STATUSLINE_PART_LABELS } from '../widget/statusline-model';
+
+/** The cell's settings rows (the chart settings dialog renders them in the chart's language). */
+const TEXT = {
+    regularHours: msg('workspace.settings.regularHours', 'Regular hours (RTH)'),
+    extendedHours: msg('workspace.settings.extendedHours', 'Extended hours (ETH)'),
+    extendedColor: msg('workspace.settings.extendedColor', 'Extended hours'),
+    premarketColor: msg('workspace.settings.premarketColor', 'Pre-market'),
+    postmarketColor: msg('workspace.settings.postmarketColor', 'Post-market'),
+    tradingSession: msg('workspace.settings.tradingSession', 'Trading session'),
+    session: msg('workspace.settings.session', 'Session'),
+    advanced: msg('workspace.settings.advanced', 'Advanced'),
+    barsToFetch: msg('workspace.settings.barsToFetch', 'Bars to fetch'),
+    timeZone: msg('workspace.settings.timeZone', 'Time zone'),
+    timeZoneRow: msg('workspace.settings.timeZoneRow', 'Time zone'),
+    watermark: msg('workspace.settings.watermark', 'Watermark'),
+    symbolWatermark: msg('workspace.settings.symbolWatermark', 'Symbol watermark'),
+    replayWatermark: msg('workspace.settings.replayWatermark', 'Replay watermark'),
+    statusLine: msg('workspace.settings.statusLine', 'Status line'),
+    statusLineParts: msg('workspace.settings.statusLineParts', 'Status line'),
+    indicators: msg('workspace.settings.indicators', 'Indicators'),
+    indicatorTitles: msg('workspace.settings.indicatorTitles', 'Titles'),
+    indicatorValues: msg('workspace.settings.indicatorValues', 'Values'),
+    builtIn: msg('workspace.indicators.builtIn', 'Built-in'),
+};
 
 /** The seed/mutable market state of one cell (all optional — an empty cell parks).
  *  The SAME vocabulary as the widget's chart options: the workspace's top-level chart
@@ -134,6 +163,9 @@ export interface CellDeps {
     engines: Record<string, () => ScriptingEngine>;
     /** The workspace's top-level chart options every cell's chart starts from. */
     chartDefaults: CellChartDefaults;
+    /** The workspace's CURRENT localization — a cell built after a `setLocale` starts in it
+     *  (absent = the chart defaults: English). */
+    localization?(): LocalizationOptions;
     theme: VelaTheme;
     live: boolean;
     volume: boolean;
@@ -212,6 +244,17 @@ function instanceDeltas(handle: IndicatorHandle | null): { inputs?: Record<strin
     const inputs = inputDeltas(handle.inputs, handle.inputValues());
     const props = inputDeltas(handle.props, handle.propValues());
     return inputs || props ? { ...(inputs ? { inputs } : {}), ...(props ? { props } : {}) } : undefined;
+}
+
+/** The names the indicator picker's search matches for a native type besides its shown
+ *  title: the title in English, and the short title (`RSI`) in `i18n`'s language and in
+ *  English. */
+function nativeAliases(type: string, i18n: Translator | undefined): { aliases?: string[] } {
+    const entry = nativeIndicatorEntry(type);
+    if (!entry) return {};
+    const names = [sourceText(entry.title)];
+    if (entry.shortTitle !== undefined) names.push(textOf(i18n, entry.shortTitle), sourceText(entry.shortTitle));
+    return { aliases: [...new Set(names)] };
 }
 
 export class ChartCell {
@@ -324,6 +367,7 @@ export class ChartCell {
             this.host,
             {
                 ...deps.chartDefaults,
+                ...deps.localization?.(),
                 symbol,
                 timeframe: seed.timeframe,
                 bars: seed.bars,
@@ -450,7 +494,7 @@ export class ChartCell {
         if (!this.indicatorValuesOn) this.inner.renderer.set('indicatorValues', false);
         this.watermarkOn = seed.watermark ?? deps.watermark;
         this.replayWatermarkOn = seed.replayWatermark ?? true;
-        this.watermark = deps.watermark ? new Watermark(this.host, symbol ?? '', seed.timeframe ?? '60') : null;
+        this.watermark = deps.watermark ? new Watermark(this.host, symbol ?? '', seed.timeframe ?? '60', () => this.inner?.i18n) : null;
         if (!this.watermarkOn) this.watermark?.setVisible(false);
         if (!this.replayWatermarkOn) this.watermark?.setReplayVisible(false);
         this.inner.on('replay:start', () => this.watermark?.setReplaying(true));
@@ -727,13 +771,11 @@ export class ChartCell {
     private pushSettingsSections(): void {
         const chart = this.inner;
         if (!chart) return;
-        const rth = 'Regular hours (RTH)';
-        const eth = 'Extended hours (ETH)';
         const shadeRows = this.sessionOvernightFlag
             ? [
                   {
                       kind: 'color' as const,
-                      label: 'Extended hours',
+                      label: TEXT.extendedColor,
                       id: 'extended-color',
                       get: () => this.sessionShadeColor('extendedColor'),
                       set: (v: string) => this.setSessionShadeColor('extendedColor', v),
@@ -742,14 +784,14 @@ export class ChartCell {
             : [
                   {
                       kind: 'color' as const,
-                      label: 'Pre-market',
+                      label: TEXT.premarketColor,
                       id: 'premarket-color',
                       get: () => this.sessionShadeColor('premarketColor'),
                       set: (v: string) => this.setSessionShadeColor('premarketColor', v),
                   },
                   {
                       kind: 'color' as const,
-                      label: 'Post-market',
+                      label: TEXT.postmarketColor,
                       id: 'postmarket-color',
                       get: () => this.sessionShadeColor('postmarketColor'),
                       set: (v: string) => this.setSessionShadeColor('postmarketColor', v),
@@ -758,29 +800,32 @@ export class ChartCell {
         // The `id` fields are the sections' stable visibility ids (`settings.hidden`,
         // docs/user/options.md) — same reserved ids as the widget's sections.
         const sessionSection = {
-            title: 'Trading session',
+            title: TEXT.tradingSession,
             id: 'trading-session',
             placement: 'symbol' as const,
             rows: [
                 {
                     kind: 'select' as const,
-                    label: 'Session',
+                    label: TEXT.session,
                     id: 'session',
-                    options: [rth, eth],
-                    get: () => (this.session === 'extended' ? eth : rth),
-                    set: (v: string) => this.setSession(v === eth ? 'extended' : 'regular'),
+                    options: [
+                        ['regular', TEXT.regularHours],
+                        ['extended', TEXT.extendedHours],
+                    ] as const,
+                    get: () => (this.session === 'extended' ? 'extended' : 'regular'),
+                    set: (v: string) => this.setSession(v === 'extended' ? 'extended' : 'regular'),
                 },
                 ...shadeRows,
             ],
         };
         const advanced = {
-            title: 'Advanced',
+            title: TEXT.advanced,
             id: 'advanced',
             placement: 'end' as const,
             rows: [
                 {
                     kind: 'select' as const,
-                    label: 'Bars to fetch',
+                    label: TEXT.barsToFetch,
                     id: 'bars',
                     options: ['500', '1000', '2000', '5000', '10000', '20000', '50000', '60000', '80000', '100000'],
                     get: () => String(this.state.bars ?? 1000),
@@ -796,15 +841,15 @@ export class ChartCell {
         // as the bottom bar — UTC, the exchange rule, the catalog — writing the workspace
         // CHOICE, so picking Exchange never reaches the renderer as a zone.
         const timezoneSection = {
-            title: 'Time zone',
+            title: TEXT.timeZone,
             id: 'time-zone',
             placement: 'symbol' as const,
             rows: [
                 {
                     kind: 'select' as const,
-                    label: 'Time zone',
+                    label: TEXT.timeZoneRow,
                     id: 'zone',
-                    options: timezoneMenuRows(this.deps.timezone()).map((r) => [r.value, r.label] as const),
+                    options: timezoneMenuRows(this.deps.timezone(), chart.i18n).map((r) => [r.value, r.label] as const),
                     get: () => {
                         const choice = this.deps.timezone();
                         return isExchangeTimezone(choice) ? choice : normalizeTimezone(choice);
@@ -814,73 +859,73 @@ export class ChartCell {
             ],
         };
         const watermarkSection = {
-            title: 'Watermark',
+            title: TEXT.watermark,
             id: 'watermark',
             placement: 'symbol' as const,
             rows: [
                 {
                     kind: 'toggle' as const,
-                    label: 'Symbol watermark',
+                    label: TEXT.symbolWatermark,
                     id: 'visible',
                     get: () => this.watermarkOn,
                     set: (v: boolean) => this.setWatermarkVisible(v),
                 },
                 {
                     kind: 'toggle' as const,
-                    label: 'Replay watermark',
+                    label: TEXT.replayWatermark,
                     id: 'replay',
                     get: () => this.replayWatermarkOn,
                     set: (v: boolean) => this.setReplayWatermarkVisible(v),
                 },
             ],
         };
-        const sections: Array<{ title: string; rows: readonly unknown[]; placement?: 'after-symbol' | 'end' | 'symbol'; id?: string }> = [];
+        const sections: Array<{ title: MessageLike; rows: readonly unknown[]; placement?: 'after-symbol' | 'end' | 'symbol'; id?: string }> = [];
         if (this.statusline) {
             const sl = this.statusline;
             sections.push({
-                title: 'Status line',
+                title: TEXT.statusLine,
                 id: 'status-line',
                 rows: [
-                    { kind: 'heading', label: 'Status line', id: 'parts' },
+                    { kind: 'heading', label: TEXT.statusLineParts, id: 'parts' },
                     {
                         kind: 'toggle',
-                        label: 'Symbol name',
+                        label: STATUSLINE_PART_LABELS.name,
                         id: 'name',
                         get: () => sl.partVisible('name'),
                         set: (v: boolean) => this.setStatuslinePart('name', v),
                     },
                     {
                         kind: 'toggle',
-                        label: 'Market status',
+                        label: STATUSLINE_PART_LABELS.market,
                         id: 'market',
                         get: () => sl.partVisible('market'),
                         set: (v: boolean) => this.setStatuslinePart('market', v),
                     },
                     {
                         kind: 'toggle',
-                        label: 'OHLC values',
+                        label: STATUSLINE_PART_LABELS.ohlc,
                         id: 'ohlc',
                         get: () => sl.partVisible('ohlc'),
                         set: (v: boolean) => this.setStatuslinePart('ohlc', v),
                     },
                     {
                         kind: 'toggle',
-                        label: 'Bar change values',
+                        label: STATUSLINE_PART_LABELS.change,
                         id: 'change',
                         get: () => sl.partVisible('change'),
                         set: (v: boolean) => this.setStatuslinePart('change', v),
                     },
-                    { kind: 'heading', label: 'Indicators', id: 'indicators' },
+                    { kind: 'heading', label: TEXT.indicators, id: 'indicators' },
                     {
                         kind: 'toggle',
-                        label: 'Titles',
+                        label: TEXT.indicatorTitles,
                         id: 'indicator-titles',
                         get: () => this.indicatorTitlesOn,
                         set: (v: boolean) => this.setIndicatorTitlesVisible(v),
                     },
                     {
                         kind: 'toggle',
-                        label: 'Values',
+                        label: TEXT.indicatorValues,
                         id: 'indicator-values',
                         get: () => this.indicatorValuesOn,
                         set: (v: boolean) => this.setIndicatorValuesVisible(v),
@@ -966,6 +1011,17 @@ export class ChartCell {
     get chart(): Vela {
         if (!this.inner) throw new Error(`[vela] cell "${this.id}" is destroyed`);
         return this.inner;
+    }
+
+    /** Re-read the cell's own chrome (status line, watermark, view controls, settings rows,
+     *  native indicator names) in the chart's language, after `chart.setLocale`. */
+    relocalize(): void {
+        if (!this.inner) return;
+        this.statusline?.relocalize();
+        this.watermark?.relocalize();
+        this.cellControls.refresh();
+        this.pushSettingsSections();
+        this.refreshNativeCatalog();
     }
 
     get symbol(): string {
@@ -1182,22 +1238,32 @@ export class ChartCell {
      *  index space the picker hands back, so `libraryRows` and `addFromLibrary` MUST both
      *  read it — indexing the unsorted catalog on add would land on a different study. */
     private supportedNatives(): CellNativeInfo[] {
-        return this.nativeCatalog.filter((n) => n.supported).sort((a, b) => a.title.localeCompare(b.title, 'en', { sensitivity: 'base' }));
+        // Titles are in the chart's language, so they sort by its collation (A→Z in English).
+        const locale = this.inner?.i18n.locale ?? 'en';
+        const collator = new Intl.Collator(locale, { sensitivity: 'base' });
+        return this.nativeCatalog.filter((n) => n.supported).sort((a, b) => collator.compare(a.title, b.title));
     }
 
     /** The picker's library rows: supported natives first (see {@link supportedNatives}),
      *  then the manifest in the host's own order. */
-    libraryRows(): Array<{ name: string; language?: string; category?: string; native?: boolean; nativeType?: string; beta?: boolean }> {
+    libraryRows(): Array<{ name: string; aliases?: string[]; language?: string; category?: string; native?: boolean; nativeType?: string; beta?: boolean }> {
         return [
-            ...this.supportedNatives().map((n) => ({ name: n.title, category: 'Built-in', native: true, nativeType: n.type, beta: n.beta })),
+            ...this.supportedNatives().map((n) => ({
+                name: n.title,
+                ...nativeAliases(n.type, this.inner?.i18n),
+                category: textOf(this.inner?.i18n, TEXT.builtIn),
+                native: true,
+                nativeType: n.type,
+                beta: n.beta,
+            })),
             ...this.manifest.map((e) => ({ name: e.name, language: e.language, category: e.category })),
         ];
     }
 
     /** The picker's on-chart rows: native instances first, then live script instances. */
-    onChartRows(): Array<{ name: string; language?: string; native?: boolean; nativeType?: string }> {
+    onChartRows(): Array<{ name: string; aliases?: string[]; language?: string; native?: boolean; nativeType?: string }> {
         return [
-            ...this.nativeHandles().map((h) => ({ name: h.title, native: true, nativeType: h.nativeType })),
+            ...this.nativeHandles().map((h) => ({ name: h.title, ...nativeAliases(h.nativeType!, this.inner?.i18n), native: true, nativeType: h.nativeType })),
             ...this.instances.map((it) => ({ name: it.entry.name, language: it.entry.language })),
         ];
     }

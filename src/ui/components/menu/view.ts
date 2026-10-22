@@ -12,6 +12,15 @@ import { holdForExit, type SurfaceExit } from '../../surface-exit';
 import { menuController, type MenuControllerOptions, type MenuItemDescriptor } from './controller';
 import { MENU_CSS, MENU_STYLE_ID } from './styles';
 import * as zagMenu from '@zag-js/menu';
+import { msg } from '../../../core/i18n/message';
+import { textOf } from '../../../core/i18n/text';
+import type { Translator } from '../../../core/i18n/types';
+import { kitTranslator } from '../../kit-text';
+
+const TEXT = {
+    addFavorite: msg('ui.menu.addFavorite', 'Add to favorites'),
+    removeFavorite: msg('ui.menu.removeFavorite', 'Remove from favorites'),
+};
 
 export interface MenuOptions extends MenuControllerOptions {
     /** Element that opens the menu on click (gets the machine's trigger props). */
@@ -38,6 +47,8 @@ export interface MenuOptions extends MenuControllerOptions {
      *  labels align; a level with no icon keeps its natural left edge. With `checkmarks`,
      *  the mark column leads and the badge follows. Submenus inherit the mode. */
     iconBadges?: boolean;
+    /** The translator of the menu's own words (a star's name). Default: the kit build's, else English. */
+    i18n?: Translator | null;
 }
 
 interface SurfaceOptions {
@@ -54,6 +65,7 @@ interface SurfaceOptions {
     onFavorite?: (id: string, on: boolean) => void;
     checkmarks?: boolean;
     iconBadges?: boolean;
+    i18n: Translator | null;
 }
 
 /**
@@ -71,6 +83,7 @@ class Surface {
     private readonly host: HTMLElement;
     private readonly onSelect: (id: string) => void;
     private readonly onFavorite?: (id: string, on: boolean) => void;
+    private readonly i18n: Translator | null;
     private readonly checkmarks: boolean;
     private readonly iconBadges: boolean;
     private items: readonly MenuItemDescriptor[] = [];
@@ -90,6 +103,7 @@ class Surface {
         this.host = opts.host;
         this.onSelect = opts.onSelect;
         this.onFavorite = opts.onFavorite;
+        this.i18n = opts.i18n;
         this.checkmarks = opts.checkmarks === true;
         this.iconBadges = opts.iconBadges === true;
 
@@ -281,7 +295,7 @@ class Surface {
                 if (on) star.classList.add('vela-fav');
                 star.removeAttribute('aria-hidden'); // iconEl hides decorative icons; this one is a control
                 star.setAttribute('role', 'button');
-                star.setAttribute('aria-label', on ? 'Remove from favorites' : 'Add to favorites');
+                star.setAttribute('aria-label', textOf(this.i18n, on ? TEXT.removeFavorite : TEXT.addFavorite));
                 star.setAttribute('aria-pressed', on ? 'true' : 'false');
                 // Swallow the whole pointer sequence: the machine selects rows on click,
                 // and a press that starts on the star must never reach the row.
@@ -312,6 +326,7 @@ class Surface {
                     opener: li,
                     onSelect: this.onSelect,
                     onFavorite: this.onFavorite,
+                    i18n: this.i18n,
                     checkmarks: this.checkmarks,
                     iconBadges: this.iconBadges,
                     id: `${this.mid}--${item.id}`,
@@ -342,6 +357,7 @@ export class Menu {
             id: opts.id,
             minWidth: opts.minWidth,
             onFavorite: opts.onFavorite,
+            i18n: opts.i18n ?? kitTranslator(),
             checkmarks: opts.checkmarks,
             iconBadges: opts.iconBadges,
         });

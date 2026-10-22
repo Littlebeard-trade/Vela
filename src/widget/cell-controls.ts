@@ -5,6 +5,9 @@
 // the renderer's scroll-to-realtime button, and styled like the pane clusters
 // (a neutral scrim pill over chart content).
 import { icon } from '../core/icons';
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
+import type { MessageLike } from '../core/i18n/types';
 import { injectStyles } from '../ui/styles';
 import { Glider, ZOOM_IN, ZOOM_OUT } from './glide';
 import type { Vela } from '../Vela';
@@ -31,6 +34,15 @@ const CLUSTER_PILL = 'rgba(0,0,0,0.65)';
  */
 export const CLUSTER_LEFT_CSS =
     'calc((100% + var(--vela-toolbar-gutter, 0px) - var(--vela-scale-gutter, 0px)) / 2)';
+
+const TEXT = {
+    zoomOut: msg('widget.cellControls.zoomOut', 'Zoom out'),
+    zoomIn: msg('widget.cellControls.zoomIn', 'Zoom in'),
+    restoreLayout: msg('widget.cellControls.restoreLayout', 'Restore layout'),
+    maximizeChart: msg('widget.cellControls.maximizeChart', 'Maximize chart'),
+    resetChart: msg('widget.cellControls.resetChart', 'Reset chart'),
+    dragToMove: msg('widget.cellControls.dragToMove', 'Drag to move chart'),
+};
 
 const STYLE_ID = 'vela-cell-controls';
 const CSS = `
@@ -133,7 +145,7 @@ export class CellControls {
         this.refresh();
     }
 
-    /** Rebuild the buttons (the multi-cell gate or the maximized state changed). */
+    /** Rebuild the buttons (the multi-cell gate, the maximized state or the language changed). */
     refresh(): void {
         this.root.textContent = '';
         const multi = this.deps.multiCell();
@@ -141,11 +153,11 @@ export class CellControls {
         // The drag handle only exists when there is somewhere to move to: never on a
         // single-cell grid, and not while this chart covers the grid.
         if (multi && !maximized) this.root.appendChild(this.makeGrip());
-        this.root.appendChild(this.button('minus', 'Zoom out', () => this.glider.zoom(ZOOM_OUT)));
-        this.root.appendChild(this.button('plus', 'Zoom in', () => this.glider.zoom(ZOOM_IN)));
+        this.root.appendChild(this.button('minus', TEXT.zoomOut, () => this.glider.zoom(ZOOM_OUT)));
+        this.root.appendChild(this.button('plus', TEXT.zoomIn, () => this.glider.zoom(ZOOM_IN)));
         if (multi) {
             this.root.appendChild(
-                this.button(maximized ? 'restore' : 'maximize', maximized ? 'Restore layout' : 'Maximize chart', () => this.deps.toggleMaximize(), {
+                this.button(maximized ? 'restore' : 'maximize', maximized ? TEXT.restoreLayout : TEXT.maximizeChart, () => this.deps.toggleMaximize(), {
                     // The maximized state reads as an inverse chip (white-on-dark, dark-on-light),
                     // the same active-state affordance as a collapsed pane's expand button.
                     selected: maximized,
@@ -153,15 +165,21 @@ export class CellControls {
             );
         }
         this.root.appendChild(
-            this.button('reset', 'Reset chart', () => {
+            this.button('reset', TEXT.resetChart, () => {
                 this.glider.stop(); // a running zoom glide must not fight the reset
                 this.deps.reset();
             }),
         );
     }
 
-    private button(iconId: string, title: string, onClick: () => void, opts: { selected?: boolean } = {}): HTMLButtonElement {
+    /** Text in the chart's language. */
+    private t(text: MessageLike): string {
+        return textOf(this.deps.chart()?.i18n, text);
+    }
+
+    private button(iconId: string, text: MessageLike, onClick: () => void, opts: { selected?: boolean } = {}): HTMLButtonElement {
         const b = this.host.ownerDocument.createElement('button');
+        const title = this.t(text);
         b.type = 'button';
         b.title = title;
         b.setAttribute('aria-label', title);
@@ -180,8 +198,8 @@ export class CellControls {
     private makeGrip(): HTMLButtonElement {
         const b = this.host.ownerDocument.createElement('button');
         b.type = 'button';
-        b.title = 'Drag to move chart';
-        b.setAttribute('aria-label', 'Drag to move chart');
+        b.title = this.t(TEXT.dragToMove);
+        b.setAttribute('aria-label', b.title);
         b.className = 'vela-cc-btn vela-cc-grip';
         b.innerHTML = icon('grip');
         b.addEventListener('pointerdown', (e) => this.onGripDown(b, e));

@@ -9,6 +9,7 @@ import type { SceneGraph, PaneNode } from '../core/SceneGraph';
 import { candleTier, wickWidth, candleGeometry, snapY, aggregateCandleColumns } from './candle-lod';
 import { BASELINE_TOP_LINE, BASELINE_BOTTOM_LINE, BASELINE_FILL_ALPHA, BASELINE_FILL_ALPHA_FAR, withAlpha, effectiveCandlePaint } from '../core/chartConfig';
 import type { IRenderBackend } from './IRenderBackend';
+import { beginPlotFrame } from '../core/plotDirection';
 
 /**
  * Canvas2d GEOMETRY backend (L0) — the PRIMARY native backend and the WebGL2
@@ -45,7 +46,7 @@ export class Canvas2dBackend implements IRenderBackend {
         const fullH = canvas.height / dpr;
         const dataW = coords.width; // excludes the right price-axis strip
 
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        beginPlotFrame(ctx, dpr);
         ctx.clearRect(0, 0, fullW, fullH);
 
         const n = coords.barCount;

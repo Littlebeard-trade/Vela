@@ -7,6 +7,20 @@ import { toHex6, withAlpha } from '../../../core/color';
 import { barTransformFor } from '../../../core/price-styles/BarTransform';
 import type { OHLCV } from '../../../core/model/ohlcv';
 import { valueDecimals } from '../chrome/ticks';
+import { msg } from '../../../core/i18n/message';
+import { localizeNumberText, textOf } from '../../../core/i18n/text';
+import { englishTranslator } from '../../../core/i18n/translator';
+import type { MessageLike, Translator } from '../../../core/i18n/types';
+
+const TEXT = {
+    loading: msg('drawing.magnifier.loading', 'Loading…'),
+    noData: msg('drawing.magnifier.noData', 'No lower-timeframe data'),
+    tooWide: msg('drawing.magnifier.tooWide', 'Area too wide for this timeframe'),
+    noneLower: msg('drawing.magnifier.noneLower', 'No lower timeframe available'),
+    notLower: msg('drawing.magnifier.notLower', "Pick a timeframe lower than the chart's"),
+    noSource: msg('drawing.magnifier.noSource', 'No data source'),
+    infoLine: msg('drawing.infoline.measure', '{change} ({percent}%)  {count, plural, one {{bars} bar} other {{bars} bars}}'),
+};
 
 const HANDLE_RADIUS = 4.5; // px radius of the round drag handles
 /** Handle chrome is fixed (not the drawing's line color) so tools with atypical accents —
@@ -53,6 +67,25 @@ export function handleIdsFor(targets: PaintTargets): ReadonlySet<string> {
 export class DrawingPainter {
     /** The current `paintAll` call's interaction state, visible to the per-type painters. */
     private targets: PaintTargets = {};
+
+    /** The chart's translator, pushed by the controller: labels painted on drawings read in
+     *  its language and their numbers in its digits. */
+    i18n: Translator = englishTranslator();
+
+    private t(m: MessageLike, values?: Record<string, string | number>): string {
+        return textOf(this.i18n, m, values);
+    }
+
+    /** A price for a Price Label tag or a Price Note — decimals scaled to the magnitude,
+     *  with the locale's grouping. */
+    private priceTag(p: number): string {
+        return this.i18n.format.price(p, { decimals: valueDecimals(p), grouping: true, surface: 'drawing' });
+    }
+
+    /** ASCII number text (`0.618 (123.45)`) in the chart's digits and separators. */
+    private num(text: string): string {
+        return localizeNumberText(text, this.i18n);
+    }
 
     /** The chart's active series LOOK — style + resolved series colors — pushed by the
      *  controller before each paint. The magnifier's inset mirrors both: candles/bars/line/
@@ -537,7 +570,7 @@ export class DrawingPainter {
             ctx.fillStyle = l.color;
             ctx.font = numFont;
             ctx.textAlign = l.numberAlign;
-            ctx.fillText(l.numberText, l.numberX, l.numberY);
+            ctx.fillText(this.num(l.numberText), l.numberX, l.numberY);
             if (l.label) {
                 ctx.font = lblFont;
                 ctx.textAlign = 'center';
@@ -780,7 +813,7 @@ export class DrawingPainter {
         ctx.lineWidth = d.style.lineWidth;
         ctx.strokeRect(x, y, w, h);
         ctx.setLineDash([]);
-        const lines = d.measureLabel(proj);
+        const lines = d.measureLabel(proj, this.i18n);
         const fs = namedFontSize(d.text?.size ?? 'normal');
         ctx.fillStyle = d.text?.color ?? theme.textColor;
         ctx.font = `${fs}px ${theme.fontFamily}`;
@@ -828,11 +861,11 @@ export class DrawingPainter {
         // Header + loss/size stack above the box (whichever is shown alone takes the bottom
         // slot); target/stop % stay centered in their zones.
         const topY = Math.min(ey, sy, ty) - 9;
-        if (d.showHeader) ctx.fillText(d.headerLabel(), cx, d.showLossSize ? topY - Math.round(fs * 1.15) : topY);
+        if (d.showHeader) ctx.fillText(d.headerLabel(this.i18n), cx, d.showLossSize ? topY - Math.round(fs * 1.15) : topY);
         ctx.font = `${Math.max(10, fs - 1)}px ${theme.fontFamily}`;
-        if (d.showLossSize) ctx.fillText(d.lossSizeLabel(), cx, topY);
-        if (d.showTargetLabel) ctx.fillText(d.targetLabel(), cx, (ey + ty) / 2);
-        if (d.showStopLabel) ctx.fillText(d.stopLabel(), cx, (ey + sy) / 2);
+        if (d.showLossSize) ctx.fillText(d.lossSizeLabel(this.i18n), cx, topY);
+        if (d.showTargetLabel) ctx.fillText(d.targetLabel(this.i18n), cx, (ey + ty) / 2);
+        if (d.showStopLabel) ctx.fillText(d.stopLabel(this.i18n), cx, (ey + sy) / 2);
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
     }
@@ -965,17 +998,17 @@ export class DrawingPainter {
         } else if (res) {
             const notice =
                 res.state === 'loading'
-                    ? 'Loading…'
+                    ? TEXT.loading
                     : res.state === 'ready'
-                      ? 'No lower-timeframe data'
+                      ? TEXT.noData
                       : res.reason === 'too-wide'
-                        ? 'Area too wide for this timeframe'
+                        ? TEXT.tooWide
                         : res.reason === 'none-lower'
-                          ? 'No lower timeframe available'
+                          ? TEXT.noneLower
                           : res.reason === 'not-lower'
-                            ? 'Pick a timeframe below the chart'
-                            : 'No data source';
-            this.paintMagnifierNotice(ctx, notice, x0, y0, w, h, theme);
+                            ? TEXT.notLower
+                            : TEXT.noSource;
+            this.paintMagnifierNotice(ctx, this.t(notice), x0, y0, w, h, theme);
         }
 
         // Border on top of the inset content. An unset border color means the theme's
@@ -994,7 +1027,7 @@ export class DrawingPainter {
         // live dropdown trigger — a caret marks it clickable, and its painted rect is stored
         // on the drawing for the interaction layer to hit-test.
         if (w > 44) {
-            const label = magnifierTimeframeLabel(res?.state === 'ready' || res?.state === 'loading' ? res.timeframe : d.magnifier.timeframe);
+            const label = this.t(magnifierTimeframeLabel(res?.state === 'ready' || res?.state === 'loading' ? res.timeframe : d.magnifier.timeframe));
             const chipH = 17;
             const gap = 4;
             const pane = proj.paneRect?.(d.paneId);
@@ -1377,7 +1410,7 @@ export class DrawingPainter {
         const pts = d.handlePoints(proj);
         if (!pts.length) return;
         const [ax, ay] = pts[0]!;
-        const { lines, tw, lh } = this.measureText(ctx, d, theme, 'Note');
+        const { lines, tw, lh } = this.measureText(ctx, d, theme, this.t(d.placeholderText() ?? ''));
         const padX = 8;
         const padY = 5;
         this.paintTextPlate(ctx, d, theme, ax, ay, tw + padX * 2, lines.length * lh + padY * 2, lines, lh, padX, padY);
@@ -1391,7 +1424,7 @@ export class DrawingPainter {
         if (!p || !a) return;
         const [tx, ty] = p[0];
         const [cx, cy] = p[1];
-        const priceStr = formatPriceTag(a.price);
+        const priceStr = this.priceTag(a.price);
         const text = d.text;
         const fs = namedFontSize(text?.size ?? 'normal');
         ctx.font = `${text?.bold ? 'bold ' : ''}${text?.italic ? 'italic ' : ''}${fs}px ${theme.fontFamily}`;
@@ -1430,7 +1463,7 @@ export class DrawingPainter {
         if (!p) return;
         const [bx, by] = p[0];
         const [sx, sy] = p[1];
-        const { lines, tw, lh } = this.measureText(ctx, d, theme, 'Signpost');
+        const { lines, tw, lh } = this.measureText(ctx, d, theme, this.t(d.placeholderText() ?? ''));
         const padX = 9;
         const padY = 6;
         const w = tw + padX * 2;
@@ -1452,7 +1485,7 @@ export class DrawingPainter {
         const a = d.anchors[0];
         if (!pts.length || !a) return;
         const [ax, ay] = pts[0]!;
-        const priceStr = formatPriceTag(a.price);
+        const priceStr = this.priceTag(a.price);
         const text = d.text;
         const fs = namedFontSize(text?.size ?? 'normal');
         ctx.font = `${text?.bold ? 'bold ' : ''}${text?.italic ? 'italic ' : ''}${fs}px ${theme.fontFamily}`;
@@ -1541,7 +1574,7 @@ export class DrawingPainter {
             const ny = ((pts[i - 1]?.[1] ?? p[1]) + (pts[i + 1]?.[1] ?? p[1])) / 2;
             const above = p[1] <= ny; // a local peak → label above, a trough → below
             ctx.textBaseline = above ? 'bottom' : 'top';
-            ctx.fillText(lbl, p[0], above ? p[1] - 7 : p[1] + 7);
+            ctx.fillText(this.t(lbl), p[0], above ? p[1] - 7 : p[1] + 7);
         });
         if (d.legRatios()) {
             ctx.font = `11px ${theme.fontFamily}`;
@@ -1554,7 +1587,7 @@ export class DrawingPainter {
                 if (r == null || !a || !b) continue;
                 const ok = d.ratioOk(i); // green in-band / red out / theme color when no rule
                 ctx.fillStyle = ok === true ? VALID_FILL : ok === false ? INVALID_FILL : theme.textColor;
-                ctx.fillText(r.toFixed(3), (a[0] + b[0]) / 2 + 6, (a[1] + b[1]) / 2);
+                ctx.fillText(this.num(r.toFixed(3)), (a[0] + b[0]) / 2 + 6, (a[1] + b[1]) / 2);
             }
         }
         const name = d.patternName(); // harmonic name + ✓/✗ badge at the completion point (D)
@@ -1566,7 +1599,7 @@ export class DrawingPainter {
             ctx.fillStyle = valid === false ? INVALID_FILL : VALID_FILL;
             ctx.textAlign = 'center';
             ctx.textBaseline = above ? 'bottom' : 'top';
-            ctx.fillText(`${name} ${valid ? '✓' : '✗'}`, dPt[0], above ? dPt[1] - 22 : dPt[1] + 22);
+            ctx.fillText(`${this.t(name)} ${valid ? '✓' : '✗'}`, dPt[0], above ? dPt[1] - 22 : dPt[1] + 22);
         }
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
@@ -1632,7 +1665,7 @@ export class DrawingPainter {
         const pct = a.price !== 0 ? (priceChange / a.price) * 100 : 0;
         const bars = proj.barsBetween ? Math.abs(Math.round(proj.barsBetween(a.time, b.time))) : 0;
         const sign = priceChange >= 0 ? '+' : '';
-        const txt = `${sign}${priceChange.toFixed(2)} (${sign}${pct.toFixed(2)}%)  ${bars} bars`;
+        const txt = this.t(TEXT.infoLine, { change: this.num(`${sign}${priceChange.toFixed(2)}`), percent: this.num(`${sign}${pct.toFixed(2)}`), count: bars, bars: this.num(String(bars)) });
         const mx = (x1 + x2) / 2;
         const my = (y1 + y2) / 2;
         ctx.font = '11px monospace';
@@ -1696,7 +1729,7 @@ export class DrawingPainter {
         }
         // The readout sits on the side of the baseline the line leaves empty — under it for a
         // rising line, over it for a falling one — so the line never runs through the digits.
-        const label = `${angleDeg.toFixed(1)}°`;
+        const label = `${this.num(angleDeg.toFixed(1))}°`;
         const lx = x1 + arcR + 6;
         const ly = dy < 0 ? y1 + 14 : y1 - 6;
         ctx.font = `11px ${theme.fontFamily}`;
@@ -1801,11 +1834,6 @@ function isTransparent(color: string): boolean {
     return m ? parseFloat(m[1]!) === 0 : false;
 }
 
-/** Format a price for a Price Label tag — decimals scaled to the magnitude, with grouping. */
-function formatPriceTag(p: number): string {
-    const d = valueDecimals(p);
-    return p.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
-}
 
 /** Begin a rounded-rectangle path (arcTo-based, no `ctx.roundRect` dependency). */
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {

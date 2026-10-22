@@ -2,6 +2,7 @@ import type { DrawingPoint, FreeAxis, Projector } from './geometry';
 import type { DrawingStyle, DrawingText } from './style';
 import { defaultStyle, defaultText } from './style';
 import type { SettingsSchema } from './schema';
+import type { MessageLike } from '../i18n/types';
 import { sanitizeShowOn } from './visibility';
 
 /**
@@ -237,6 +238,13 @@ export abstract class Drawing {
 
     // ── settings (data-driven) ──
     abstract schema(): SettingsSchema;
+
+    /** The text a fresh drawing of this type starts with ("Note", "Callout"), as a message,
+     *  or null for a type that seeds none. A new drawing stores its English source; the chart
+     *  that places one interactively writes it in its own language instead. */
+    placeholderText(): MessageLike | null {
+        return null;
+    }
 
     /**
      * Editable per-level config for a rich "gear" settings panel (Fibonacci levels):

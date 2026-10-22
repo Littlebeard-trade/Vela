@@ -6,8 +6,29 @@
 // Rebound to each new chart instance after a widget rebuild.
 import type { Vela } from '../Vela';
 import type { DataWindowReadout } from '../core/ports/IChartRenderer';
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
+import type { Translator } from '../core/i18n/types';
 import { injectStyles } from '../ui/styles';
 import { SidePanel } from './side-panel';
+
+const TEXT = {
+    title: msg('widget.dataWindow.title', 'Data window'),
+    timeSection: msg('widget.dataWindow.timeSection', 'Time'),
+    date: msg('widget.dataWindow.date', 'Date'),
+    time: msg('widget.dataWindow.time', 'Time'),
+    open: msg('widget.dataWindow.open', 'Open'),
+    high: msg('widget.dataWindow.high', 'High'),
+    low: msg('widget.dataWindow.low', 'Low'),
+    close: msg('widget.dataWindow.close', 'Close'),
+    volume: msg('widget.dataWindow.volume', 'Volume'),
+    priceSection: msg('widget.dataWindow.priceSection', 'Price'),
+    noData: msg('widget.dataWindow.noData', 'No data'),
+    noReadout: msg('widget.dataWindow.noReadout', 'This renderer provides no data readout.'),
+};
+
+/** The panel's title (also its toggle's tooltip). */
+export const DATA_WINDOW_TITLE = TEXT.title;
 
 const STYLE_ID = 'vela-widget-datawindow';
 const CSS = `
@@ -34,7 +55,8 @@ const CSS = `
 }
 .vela-dw-row:hover { background: var(--vela-hover); }
 .vela-dw-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vela-fg-bright); }
-.vela-dw-value { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Values are left-to-right isolates (dir="ltr"), so a sign keeps its place in a right-to-left page. */
+.vela-dw-value { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; unicode-bidi: isolate; }
 .vela-dw-empty { padding: 20px 10px; text-align: center; color: var(--vela-fg-muted); font-size: 12px; }
 `;
 
@@ -61,14 +83,15 @@ const EM_DASH = '—';
  * direction), then one section per indicator with a line per plot in the plot's own color.
  * Empty when the chart holds no bar to read.
  */
-export function dataWindowSections(readout: DataWindowReadout): DataWindowSection[] {
+export function dataWindowSections(readout: DataWindowReadout, i18n?: Translator | null): DataWindowSection[] {
+    const t = (m: (typeof TEXT)[keyof typeof TEXT]): string => textOf(i18n, m);
     const sections: DataWindowSection[] = [];
     if (readout.date || readout.time) {
         sections.push({
-            title: 'Time',
+            title: t(TEXT.timeSection),
             lines: [
-                { label: 'Date', value: readout.date || EM_DASH, color: '' },
-                { label: 'Time', value: readout.time || EM_DASH, color: '' },
+                { label: t(TEXT.date), value: readout.date || EM_DASH, color: '' },
+                { label: t(TEXT.time), value: readout.time || EM_DASH, color: '' },
             ],
         });
     }
@@ -76,13 +99,13 @@ export function dataWindowSections(readout: DataWindowReadout): DataWindowSectio
     if (ohlc) {
         const color = ohlc.up ? 'var(--vela-up)' : 'var(--vela-down)';
         const lines: DataWindowLine[] = [
-            { label: 'Open', value: ohlc.o, color },
-            { label: 'High', value: ohlc.h, color },
-            { label: 'Low', value: ohlc.l, color },
-            { label: 'Close', value: ohlc.c, color },
+            { label: t(TEXT.open), value: ohlc.o, color },
+            { label: t(TEXT.high), value: ohlc.h, color },
+            { label: t(TEXT.low), value: ohlc.l, color },
+            { label: t(TEXT.close), value: ohlc.c, color },
         ];
-        if (ohlc.vol !== undefined) lines.push({ label: 'Volume', value: ohlc.vol, color });
-        sections.push({ title: 'Price', lines });
+        if (ohlc.vol !== undefined) lines.push({ label: t(TEXT.volume), value: ohlc.vol, color });
+        sections.push({ title: t(TEXT.priceSection), lines });
     }
     for (const group of readout.groups) {
         sections.push({ title: group.name, lines: group.rows.map((r) => ({ label: r.label, value: r.value, color: r.color })) });
@@ -94,8 +117,8 @@ export class DataWindow extends SidePanel {
     private chart: Vela | null = null;
     private unsubs: Array<() => void> = [];
 
-    constructor(host: HTMLElement) {
-        super(host, 'Data window', 'vela-dw');
+    constructor(host: HTMLElement, i18n?: Translator) {
+        super(host, TEXT.title, 'vela-dw', i18n ? { i18n } : {});
         injectStyles(STYLE_ID, CSS, host.ownerDocument);
     }
 
@@ -118,6 +141,11 @@ export class DataWindow extends SidePanel {
         super.destroy();
     }
 
+    override relocalize(): void {
+        super.relocalize();
+        this.refresh();
+    }
+
     private detach(): void {
         for (const u of this.unsubs) u();
         this.unsubs = [];
@@ -129,11 +157,11 @@ export class DataWindow extends SidePanel {
         const doc = this.el.ownerDocument;
         const readout = this.chart.renderer.dataWindowReadout();
         this.body.replaceChildren();
-        const sections = readout ? dataWindowSections(readout) : [];
+        const sections = readout ? dataWindowSections(readout, this.i18n) : [];
         if (sections.length === 0) {
             const empty = doc.createElement('div');
             empty.className = 'vela-dw-empty';
-            empty.textContent = readout ? 'No data' : 'This renderer provides no data readout.';
+            empty.textContent = this.t(readout ? TEXT.noData : TEXT.noReadout);
             this.body.appendChild(empty);
             return;
         }
@@ -150,6 +178,7 @@ export class DataWindow extends SidePanel {
                 label.textContent = line.label;
                 const value = doc.createElement('span');
                 value.className = 'vela-dw-value';
+                value.dir = 'ltr';
                 value.textContent = line.value;
                 if (line.color) value.style.color = line.color;
                 row.append(label, value);

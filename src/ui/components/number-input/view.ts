@@ -3,6 +3,15 @@ import { injectStyles } from '../../styles';
 import { iconEl } from '../../icons';
 import { numberInputController, snapToStep, type NumberInputControllerOptions } from './controller';
 import { NUMBER_CSS, NUMBER_STYLE_ID } from './styles';
+import { msg } from '../../../core/i18n/message';
+import { textOf } from '../../../core/i18n/text';
+import type { Translator } from '../../../core/i18n/types';
+import { kitTranslator } from '../../kit-text';
+
+const TEXT = {
+    increase: msg('ui.numberInput.increase', 'Increase'),
+    decrease: msg('ui.numberInput.decrease', 'Decrease'),
+};
 
 export interface NumberInputOptions extends NumberInputControllerOptions {
     id?: string;
@@ -14,6 +23,8 @@ export interface NumberInputOptions extends NumberInputControllerOptions {
     /** Stretch to the parent. Defaults to on for `md`, off for `sm`. Chart settings
      *  passes `false` so the field stays a 100px kit column instead of filling the pane. */
     fill?: boolean;
+    /** The translator of the steppers' names (default: the kit build's, else English). */
+    i18n?: Translator | null;
 }
 
 export class NumberInput {
@@ -23,10 +34,12 @@ export class NumberInput {
     private last: string;
     private readonly placeholderMode: boolean;
     private readonly emptyValue: number;
+    private readonly i18n: Translator | null;
 
     constructor(opts: NumberInputOptions) {
         const doc = document;
         injectStyles(NUMBER_STYLE_ID, NUMBER_CSS, doc);
+        this.i18n = opts.i18n ?? kitTranslator();
         this.ctrl = numberInputController(opts);
         this.placeholderMode = opts.placeholder !== undefined;
         this.emptyValue = opts.emptyValue ?? opts.value;
@@ -132,7 +145,7 @@ export class NumberInput {
             b.addEventListener('pointercancel', stop);
             return b;
         };
-        steps.append(mk(1, 'chevron-up', 'Increase'), mk(-1, 'chevron-down', 'Decrease'));
+        steps.append(mk(1, 'chevron-up', textOf(this.i18n, TEXT.increase)), mk(-1, 'chevron-down', textOf(this.i18n, TEXT.decrease)));
         return steps;
     }
 }

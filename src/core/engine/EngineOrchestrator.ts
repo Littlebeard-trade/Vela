@@ -18,8 +18,8 @@ import type { VelaEventMap } from '../events/types';
 import { TypedEventBus } from '../events/EventBus';
 import { IndicatorRegistry, type CodeSnapshot, type IndicatorRecord } from './IndicatorRegistry';
 import {
-    getNativeIndicator,
-    nativeIndicatorDescriptors,
+    nativeIndicatorEntry,
+    nativeIndicatorEntries,
     nativeInstanceChannel,
     type NativeIndicatorContext,
     type NativeIndicatorInfo,
@@ -39,6 +39,10 @@ import { parseSymbol } from '../../data/ProviderRegistry';
 import { barTransformFor, parseExtendedTicker, type BarTransform } from '../price-styles/BarTransform';
 import { chartType, type SeriesDataEngine } from '../../chart-types/registry';
 import { resolveTheme } from '../theme';
+import { englishTranslator } from '../i18n/translator';
+import { textOf } from '../i18n/text';
+import type { Translator } from '../i18n/types';
+import { messageOnly } from '../native-indicators/localize';
 import type { ReplayBounds, ReplayController, ReplayEndReason, ReplayStartOptions, ReplayState, ReplayTick, ReplayTickSource } from '../ReplayControl';
 
 export interface ResolvedConfig {
@@ -124,6 +128,8 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
     /** The maximized pane (mirror), or null when the split is normal. */
     private maximizedPaneId: string | null = null;
     private paneActionUnsub: Unsubscribe | null = null;
+    /** The chart's translator: native indicators' names read in its language. */
+    private i18n: Translator = englishTranslator();
     private readonly handles = new Map<string, IndicatorHandleImpl>();
     private readonly engines = new Map<string, ScriptingEngine>();
     private readonly defaultLanguage: string;
@@ -295,7 +301,7 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
             chartTimeframe: () => this.config.market.timeframe ?? '60',
             marketKey: () => `${this.config.market.symbol ?? ''}|${this.config.market.session ?? ''}`,
         });
-        this.drawings = new DrawingController(this.renderer, this.events, config.drawings, drawingSeries);
+        this.drawings = new DrawingController(this.renderer, this.events, config.drawings, drawingSeries, () => this.i18n);
         this.marks = new MarksController(this.renderer, this.events);
         // A symbol nothing can serve leaves the load PARKED; publish it so a host can say so
         // instead of showing a blank chart forever (it still resumes if a provider registers).
@@ -1510,7 +1516,7 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
 
     private maybeAutoAddVolume(): void {
         if (!this.config.volume || this.volumeOptedOut || !this.renderer.setNativeData) return; // off, opted out, or no layer
-        if (getNativeIndicator('volume')) this.addNativeIndicator('volume');
+        if (nativeIndicatorEntry('volume')) this.addNativeIndicator('volume');
     }
 
     /**
@@ -1840,14 +1846,14 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
      * addIndicator). Built-in single-instance types: `'volume'`, `'vpvr'`.
      */
     addNativeIndicator(type: string, options: { inputs?: Record<string, InputValue> } = {}): IndicatorHandle {
-        const descriptor = getNativeIndicator(type);
+        const descriptor = nativeIndicatorEntry(type);
         if (!descriptor?.multiInstance) {
             const existing = this.registry.all().find((r) => r.native?.type === type);
             if (existing) return this.handles.get(existing.id) ?? new IndicatorHandleImpl(existing.id, existing.title, this, undefined, type);
         }
 
         const id = this.registry.nextId('native', (candidate) => this.handles.has(candidate));
-        const title = descriptor?.title ?? type;
+        const title = descriptor ? textOf(this.i18n, descriptor.title) : type;
         const handle = new IndicatorHandleImpl(id, title, this, undefined, type);
         this.handles.set(id, handle);
         if (!descriptor) {
@@ -1881,9 +1887,9 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         const symbol = this.qualifiedSymbol();
         const present = new Set(this.presentNativeIndicators());
         return Promise.all(
-            nativeIndicatorDescriptors().map(async (d) => ({
+            nativeIndicatorEntries().map(async (d) => ({
                 type: d.type,
-                title: d.title,
+                title: textOf(this.i18n, d.title),
                 supported: await this.isNativeSupported(d, symbol),
                 present: present.has(d.type),
                 beta: d.beta,
@@ -2485,10 +2491,14 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         const d = record.native!.descriptor;
         const type = record.native!.type;
         const channel = this.nativeChannel(record);
+        const displayTitle = messageOnly(d.title);
+        const displayShorttitle = messageOnly(d.shortTitle);
         return {
             id: record.id,
             title: record.title,
-            ...(d.shortTitle ? { shorttitle: d.shortTitle } : {}),
+            ...(d.shortTitle ? { shorttitle: textOf(this.i18n, d.shortTitle) } : {}),
+            ...(displayTitle ? { displayTitle } : {}),
+            ...(displayShorttitle ? { displayShorttitle } : {}),
             overlay: d.overlay,
             paneHint: d.paneHint,
             native: { type, ...(channel !== type ? { channel } : {}) },
@@ -2636,6 +2646,30 @@ export class EngineOrchestrator implements IndicatorController, PaneController, 
         if (i > 0) this.paneOrder.splice(i, 1); // never remove 'price' (index 0)
         this.collapsedPanes.delete(paneId);
         if (this.maximizedPaneId === paneId) this.maximizedPaneId = null;
+    }
+
+    /** Adopt the chart's translator (one object for the chart's lifetime). */
+    setTranslator(i18n: Translator): void {
+        this.i18n = i18n;
+        this.drawings.relocalize(); // the toolbar went out before the chart's translator arrived
+    }
+
+    /** The chart's language changed: the drawing toolbar's labels and native indicators'
+     *  names, as the handles, the pane listing and script runs report them, follow it. The
+     *  renderer re-reads the display names it shows on its own. */
+    relocalize(): void {
+        this.drawings.relocalize();
+        for (const r of this.registry.all()) {
+            const d = r.native?.descriptor;
+            if (!d) continue;
+            r.title = textOf(this.i18n, d.title);
+            const handle = this.handles.get(r.id);
+            if (handle) handle.title = r.title;
+            if (r.model) {
+                r.model.title = r.title;
+                if (d.shortTitle !== undefined) r.model.shorttitle = textOf(this.i18n, d.shortTitle);
+            }
+        }
     }
 
     // ── pane management (PaneController — backs chart.panes) ──────

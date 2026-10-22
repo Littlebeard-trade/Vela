@@ -8,6 +8,11 @@ import { getNativeIndicator, nativeIndicatorTypes, unregisterNativeIndicator } f
 import { classicSpecs, registerClassicIndicators, classicDescriptor } from '../src/core/native-indicators/classics';
 import { sma, ema, rma, wma, stdev, rsi, linreg, highest, lowest, percentRank, swma, cumSum, change } from '../src/core/native-indicators/classics/math';
 import type { ClassicIndicatorSpec } from '../src/core/native-indicators/classics';
+import { createTranslator, type MessageLike } from '../src/plugin';
+
+/** The catalog's text as an English chart shows it. */
+const english = createTranslator({ locale: 'en' });
+const en = (m: MessageLike | undefined): string | undefined => (m === undefined ? undefined : english.t(m));
 
 function bar(close: number, i: number, volume?: number): OHLCV {
     return { time: i * 60000, open: close, high: close + 1, low: close - 1, close, ...(volume != null ? { volume } : {}) };
@@ -191,7 +196,7 @@ describe('classic catalog registration', () => {
         for (const spec of classicSpecs) {
             const expected = libraryShort[spec.type];
             expect(expected, spec.type).toBeDefined();
-            expect(spec.shortTitle ?? spec.title, spec.type).toBe(expected);
+            expect(en(spec.shortTitle ?? spec.title), spec.type).toBe(expected);
         }
     });
 
@@ -216,15 +221,15 @@ describe('classic catalog registration', () => {
         const byType = new Map(classicSpecs.map((s) => [s.type, s] as const));
         const smaSpec = byType.get('sma')!;
         const emaSpec = byType.get('ema')!;
-        expect(smaSpec.title).toBe('Simple Moving Average');
-        expect(emaSpec.title).toBe('Exponential Moving Average');
+        expect(en(smaSpec.title)).toBe('Simple Moving Average');
+        expect(en(emaSpec.title)).toBe('Exponential Moving Average');
         expect(smaSpec.inputs.map((i) => i.key)).toEqual(['length', 'source', 'offset', 'color']);
         expect(emaSpec.inputs.map((i) => i.key)).toEqual(['length', 'source', 'offset', 'color']);
         const closes = bars.map((b) => b.close);
         const smaOut = smaSpec.compute(bars, classicDescriptor(smaSpec).defaultInputs()).plots[0]!;
         const emaOut = emaSpec.compute(bars, classicDescriptor(emaSpec).defaultInputs()).plots[0]!;
-        expect(smaOut.title).toBe('SMA');
-        expect(emaOut.title).toBe('EMA');
+        expect(en(smaOut.title)).toBe('SMA');
+        expect(en(emaOut.title)).toBe('EMA');
         expect(smaOut.values).toEqual(sma(closes, 20));
         expect(emaOut.values).toEqual(ema(closes, 20));
         // The offset shifts the line without changing its values.
@@ -239,7 +244,7 @@ describe('classic catalog registration', () => {
         expect(byType.has('linear-regression')).toBe(false);
 
         const lsma = byType.get('lsma')!;
-        expect(lsma.title).toBe('Least Squares Moving Average');
+        expect(en(lsma.title)).toBe('Least Squares Moving Average');
         expect(lsma.overlay).toBe(true);
         const lsmaOut = lsma.compute(bars, classicDescriptor(lsma).defaultInputs());
         expect(lsmaOut.plots).toHaveLength(1);
@@ -249,7 +254,7 @@ describe('classic catalog registration', () => {
         expect(stepped.values).toEqual(linreg(closes, 30, 3));
 
         const slope = byType.get('linear-regression-slope')!;
-        expect(slope.title).toBe('Linear Regression Slope');
+        expect(en(slope.title)).toBe('Linear Regression Slope');
         expect(slope.overlay).toBe(false);
         const slopeOut = slope.compute(bars, classicDescriptor(slope).defaultInputs());
         const curve = linreg(closes, 100, 0);
@@ -467,5 +472,67 @@ describe('classic descriptor adapter', () => {
         const styled = spec.inputs.filter((i) => i.group === 'Style').map((i) => i.key);
         expect(styled).toEqual(['bullColor', 'bearColor', 'bandsColor', 'fill']);
         expect(spec.inputs.slice(-styled.length).map((i) => i.key)).toEqual(styled);
+    });
+
+    it('a plot whose name reads better on screen keeps the name hosts and saved styles know it by', () => {
+        const bars = Array.from({ length: 80 }, (_, i) => bar(100 + Math.sin(i / 4) * 5, i, 1000));
+        const named = (type: string): Array<[string, string | undefined]> =>
+            runOnce(classicSpecs.find((s) => s.type === type)!, bars).series!.map((s) => [s.title, en(s.displayTitle)]);
+        expect(named('average-directional-index')).toContainEqual(['-DI', '−DI']);
+        expect(named('vortex-indicator')).toContainEqual(['VI-', 'VI−']);
+        expect(named('chande-kroll-stop')).toEqual([
+            ['Stop Short', 'Short Stop'],
+            ['Stop Long', 'Long Stop'],
+        ]);
+        expect(named('gator-oscillator')).toEqual([
+            ['Upper Histogram (Jaw - Teeth)', 'Upper Histogram (Jaw − Teeth)'],
+            ['Lower Histogram (Teeth - Lips)', 'Lower Histogram (Teeth − Lips)'],
+        ]);
+        expect(named('52-week-high-low')).toEqual([
+            ['52 Week High', '52-Week High'],
+            ['52 Week Low', '52-Week Low'],
+        ]);
+        const vortex = runOnce(classicSpecs.find((s) => s.type === 'vortex-indicator')!, bars).series!;
+        expect(vortex.map((s) => s.id)).toEqual(['vortex-indicator:line:vi+#0', 'vortex-indicator:line:vi-#1']);
+    });
+
+    it('names every pivot type and the percentage mode in the chart language, while layouts keep the English value', () => {
+        const optionsShown = (type: string, key: string, i18n: ReturnType<typeof createTranslator>): Record<string, string> => {
+            const input = classicDescriptor(classicSpecs.find((s) => s.type === type)!)
+                .inputsSchema()
+                .find((i) => i.key === key)!;
+            return Object.fromEntries(input.options!.map((value) => [value, i18n.t(input.display?.options?.[value] ?? value)]));
+        };
+        const de = createTranslator({
+            locale: 'de',
+            messages: {
+                'indicator.option.fibonacci': 'Fibonacci-DE',
+                'indicator.option.camarilla': 'Camarilla-DE',
+                'indicator.option.woodie': 'Woodie-DE',
+                'indicator.option.rocPercent': 'ROC in %',
+            },
+        });
+        expect(optionsShown('pivot-points', 'kind', de)).toEqual({
+            Traditional: 'Traditional',
+            Fibonacci: 'Fibonacci-DE',
+            Camarilla: 'Camarilla-DE',
+            Woodie: 'Woodie-DE',
+        });
+        expect(optionsShown('rate-of-change', 'mode', de)).toEqual({ 'ROC %': 'ROC in %', Momentum: 'Momentum' });
+        expect(optionsShown('pivot-points', 'kind', english)).toEqual({
+            Traditional: 'Traditional',
+            Fibonacci: 'Fibonacci',
+            Camarilla: 'Camarilla',
+            Woodie: 'Woodie',
+        });
+    });
+
+    it("writes the Fibonacci pivot ratios with the locale's decimal separator", () => {
+        const kind = classicDescriptor(classicSpecs.find((s) => s.type === 'pivot-points')!)
+            .inputsSchema()
+            .find((i) => i.key === 'kind')!;
+        expect(kind.tooltip).toContain('Fibonacci projects 38.2/61.8/100% of the prior range');
+        expect(english.t(kind.display!.tooltip!)).toBe(kind.tooltip);
+        expect(createTranslator({ locale: 'de' }).t(kind.display!.tooltip!)).toContain('38,2/61,8/100%');
     });
 });

@@ -1,3 +1,4 @@
+import type { MessageLike } from '../i18n/types';
 import type { Millis } from './time';
 import type { OHLCV } from './ohlcv';
 
@@ -80,7 +81,11 @@ export interface SeriesDisplay {
 interface SeriesBase {
     /** Content-addressed, stable across re-runs of identical source (see identity.ts). */
     id: string;
+    /** The series' name: its identity for engines and hosts (output keys, series ids). */
     title: string;
+    /** What the legend, the data window and the settings show instead of {@link title}, in
+     *  the chart's language. Absent ⇒ {@link title}. */
+    displayTitle?: MessageLike;
     /** Pane this series belongs to; resolved by the orchestrator. */
     paneId: string;
     /** Declared draw-order intent; the renderer owns final z-ordering. */

@@ -298,7 +298,7 @@ describe('paneLabel', () => {
 
     it('falls back to the handle title, then to the slot number when the pane is empty', () => {
         expect(paneLabel(pane('p1', 'study', 1, [{ id: 'x', title: '' }]), () => 'MACD')).toBe('MACD');
-        expect(paneLabel(pane('p2', 'study', 2), () => undefined)).toBe('Pane 3');
+        expect(paneLabel(pane('p2', 'study', 2), () => undefined)).toBe('Panel 3');
     });
 });
 

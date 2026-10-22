@@ -6,6 +6,8 @@ import type { DrawingLine, DrawingBox, DrawingLabel, DrawingPolyline, DrawingLin
 import type { InputSchema, InputValue } from '../model/inputs';
 import type { VisibleRange, IndicatorStatus } from '../ports/IChartRenderer';
 import type { DataControl } from '../DataControl';
+import type { MessageLike, Translator } from '../i18n/types';
+import { textOf } from '../i18n/text';
 
 /**
  * The renderer-neutral visual parts a native indicator emits each compute — a subset of
@@ -106,14 +108,15 @@ export interface NativeIndicator {
  */
 export interface NativeIndicatorDescriptor {
     readonly type: string;
-    /** Full display name (picker, settings header, handle title). */
-    readonly title: string;
+    /** Full display name (picker, settings header, handle title). A message (`msg()`)
+     *  reads in the chart's language. */
+    readonly title: MessageLike;
     /**
      * Compact name for the on-chart legend chip, the settings-dialog header and the
      * object tree's indicator rows.
      * Absent ⇒ {@link title}. The picker keeps the full title either way.
      */
-    readonly shortTitle?: string;
+    readonly shortTitle?: MessageLike;
     readonly paneHint: 'price' | 'new';
     readonly overlay: boolean;
     /** Whether instances react to viewport changes (drives the orchestrator's viewport poke). */
@@ -204,9 +207,23 @@ export function unregisterNativeIndicator(type: string): void {
     REGISTRY.delete(type);
 }
 
-/** Look up a registered native-indicator descriptor (undefined if the type isn't registered). */
-export function getNativeIndicator(type: string): NativeIndicatorDescriptor | undefined {
-    return REGISTRY.get(type);
+/** A registered descriptor as the read APIs hand it out: its names as plain text. */
+export type ResolvedNativeIndicatorDescriptor = NativeIndicatorDescriptor & { readonly title: string; readonly shortTitle?: string };
+
+function resolved(d: NativeIndicatorDescriptor, i18n: Translator | undefined): ResolvedNativeIndicatorDescriptor {
+    if (typeof d.title === 'string' && (d.shortTitle === undefined || typeof d.shortTitle === 'string')) return d as ResolvedNativeIndicatorDescriptor;
+    // Delegate to the registered descriptor (its factory and hooks stay its own) with the
+    // names resolved on top.
+    const names: { title: string; shortTitle?: string } = { title: textOf(i18n, d.title) };
+    if (d.shortTitle !== undefined) names.shortTitle = textOf(i18n, d.shortTitle);
+    return Object.assign(Object.create(d) as NativeIndicatorDescriptor, names) as ResolvedNativeIndicatorDescriptor;
+}
+
+/** Look up a registered native-indicator descriptor (undefined if the type isn't registered).
+ *  Its names read in `i18n`'s language (English without one). */
+export function getNativeIndicator(type: string, i18n?: Translator): ResolvedNativeIndicatorDescriptor | undefined {
+    const d = REGISTRY.get(type);
+    return d ? resolved(d, i18n) : undefined;
 }
 
 /** All registered native-indicator types (for a host "add native indicator" menu). */
@@ -214,7 +231,19 @@ export function nativeIndicatorTypes(): string[] {
     return [...REGISTRY.keys()];
 }
 
-/** All registered native-indicator descriptors (for building a catalog with metadata + capability). */
-export function nativeIndicatorDescriptors(): NativeIndicatorDescriptor[] {
+/** All registered native-indicator descriptors (for building a catalog with metadata +
+ *  capability), their names in `i18n`'s language (English without one). */
+export function nativeIndicatorDescriptors(i18n?: Translator): ResolvedNativeIndicatorDescriptor[] {
+    return [...REGISTRY.values()].map((d) => resolved(d, i18n));
+}
+
+/** A registered descriptor exactly as registered, its names still messages (the chart
+ *  resolves them in its own language). */
+export function nativeIndicatorEntry(type: string): NativeIndicatorDescriptor | undefined {
+    return REGISTRY.get(type);
+}
+
+/** Every registered descriptor exactly as registered. */
+export function nativeIndicatorEntries(): NativeIndicatorDescriptor[] {
     return [...REGISTRY.values()];
 }
