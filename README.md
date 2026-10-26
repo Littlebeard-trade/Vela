@@ -2,7 +2,7 @@
 > [LB Charts](https://github.com/Littlebeard-trade/lbcharts) needs. Upstream's README follows below.
 >
 > - **Hooks** (`globalThis.__lb*`, read by LB Charts): price-only autoscale (`__lbScalePriceOnly`),
->   remembered pane heights + tight level labels (`__lbPanes`, `lbTight`), alerts panel
+>   tight level labels (`lbTight`; pane heights now use the public `chart.panes` API), alerts panel
 >   (`__lbAlerts`), instrument name under the watermark (`__lbSymbolName`).
 > - **Fib Retracement like TradingView's**: 1 at the first click, Reverse, trend line, extend,
 >   labels, background, add/remove levels; drawing **templates** (save as / apply / save as default).

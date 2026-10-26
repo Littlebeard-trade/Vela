@@ -4,6 +4,9 @@
 // settings. It replaces BOTH desktop bars: this stylesheet also carries the mobile
 // visibility flips for the topbar and the desktop bottombar, so the whole swap lives
 // in one place and follows the root's `data-layout` attribute with no JS.
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
+import type { MessageLike, Translator } from '../core/i18n/types';
 import { iconEl } from '../ui/icons';
 import { injectStyles } from '../ui/styles';
 import { parseSymbol } from '../data/ProviderRegistry';
@@ -63,6 +66,17 @@ const CSS = `
 }
 `;
 
+const TEXT = {
+    symbolSearch: msg('widget.mobileBar.symbolSearch', 'Symbol search'),
+    timeframe: msg('widget.mobileBar.timeframe', 'Timeframe'),
+    indicators: msg('widget.mobileBar.indicators', 'Indicators'),
+    drawings: msg('widget.mobileBar.drawings', 'Drawings'),
+    maximizeChart: msg('widget.mobileBar.maximizeChart', 'Maximize chart'),
+    restoreLayout: msg('widget.mobileBar.restoreLayout', 'Restore layout'),
+    more: msg('widget.mobileBar.more', 'More'),
+    chartSettings: msg('widget.mobileBar.chartSettings', 'Chart settings'),
+};
+
 export interface MobileBarOptions {
     symbol: string;
     timeframe: string;
@@ -83,6 +97,8 @@ export interface MobileBarOptions {
     /** Live widget context — left-aligned contributed actions (`align: 'left'`)
      *  project as icon-only stops in the indicators slot. */
     getContext?: () => WidgetContext;
+    /** The shell's translator. Absent: English. */
+    i18n?: Translator;
 }
 
 export class MobileBar {
@@ -94,6 +110,14 @@ export class MobileBar {
     /** Left-aligned contributed actions — filled by {@link renderActions}. */
     private readonly actionsHost: HTMLElement;
     private readonly opts: MobileBarOptions;
+    /** Each fixed stop's accessible name, re-read by {@link relocalize}. */
+    private readonly labels: Array<{ el: HTMLElement; label: MessageLike }> = [];
+    private timeframe: string;
+    private maximizeActive = false;
+
+    private t(text: MessageLike): string {
+        return textOf(this.opts.i18n, text);
+    }
 
     constructor(host: HTMLElement, opts: MobileBarOptions) {
         this.opts = opts;
@@ -102,29 +126,31 @@ export class MobileBar {
         this.el = doc.createElement('div');
         this.el.className = 'vela-mobilebar';
 
-        const item = (cls: string, label: string, onClick: () => void, icon?: string): HTMLButtonElement => {
+        this.timeframe = opts.timeframe;
+        const item = (cls: string, label: MessageLike, onClick: () => void, icon?: string): HTMLButtonElement => {
             const b = doc.createElement('button');
             b.className = `vela-mb-item ${cls}`;
-            b.setAttribute('aria-label', label);
+            b.setAttribute('aria-label', this.t(label));
+            this.labels.push({ el: b, label });
             if (icon) b.appendChild(iconEl(icon, doc));
             b.addEventListener('click', onClick);
             return b;
         };
 
-        this.symbolEl = item('vela-mb-symbol', 'Symbol search', opts.onSymbolClick);
+        this.symbolEl = item('vela-mb-symbol', TEXT.symbolSearch, opts.onSymbolClick);
         this.symbolEl.textContent = parseSymbol(opts.symbol).ticker;
-        this.tfEl = item('vela-mb-tf', 'Timeframe', opts.onTimeframeClick);
-        this.tfEl.textContent = timeframeLabel(opts.timeframe);
+        this.tfEl = item('vela-mb-tf', TEXT.timeframe, opts.onTimeframeClick);
+        this.tfEl.textContent = timeframeLabel(opts.timeframe, opts.i18n);
         const onIndicators = opts.onIndicatorsClick;
-        const indicators = onIndicators ? item('vela-mb-indicators', 'Indicators', onIndicators, 'indicators') : null;
+        const indicators = onIndicators ? item('vela-mb-indicators', TEXT.indicators, onIndicators, 'indicators') : null;
         this.actionsHost = doc.createElement('span');
         this.actionsHost.className = 'vela-mb-actions';
         const onDrawings = opts.onDrawingsClick;
-        const drawings = onDrawings ? item('vela-mb-drawings', 'Drawings', onDrawings, 'pen') : null;
+        const drawings = onDrawings ? item('vela-mb-drawings', TEXT.drawings, onDrawings, 'pen') : null;
         const onMaximize = opts.onMaximizeClick;
-        this.maxEl = onMaximize ? item('vela-mb-maximize', 'Maximize chart', onMaximize, 'maximize') : null;
-        const more = item('vela-mb-more', 'More', opts.onMoreClick, 'kebab');
-        const settings = item('vela-mb-settings', 'Chart settings', opts.onSettingsClick, 'gear');
+        this.maxEl = onMaximize ? item('vela-mb-maximize', TEXT.maximizeChart, onMaximize, 'maximize') : null;
+        const more = item('vela-mb-more', TEXT.more, opts.onMoreClick, 'kebab');
+        const settings = item('vela-mb-settings', TEXT.chartSettings, opts.onSettingsClick, 'gear');
 
         this.el.append(this.symbolEl, this.tfEl, ...(indicators ? [indicators] : []), this.actionsHost, ...(drawings ? [drawings] : []), ...(this.maxEl ? [this.maxEl] : []), more, settings);
         host.appendChild(this.el);
@@ -145,9 +171,10 @@ export class MobileBar {
         for (const action of widgetActions('topbar', ctx).filter((a) => mobilePlacement(a) === 'bar' && !builtin.has(a.id))) {
             const b = doc.createElement('button');
             b.className = 'vela-mb-item';
-            b.setAttribute('aria-label', action.label);
+            const label = textOf(ctx.i18n ?? this.opts.i18n, action.label);
+            b.setAttribute('aria-label', label);
             if (action.icon) b.appendChild(iconEl(action.icon, doc));
-            else b.appendChild(doc.createTextNode(action.label));
+            else b.appendChild(doc.createTextNode(label));
             b.addEventListener('click', () => {
                 const c = this.opts.getContext?.();
                 if (c) action.run(c);
@@ -161,15 +188,25 @@ export class MobileBar {
     }
 
     setTimeframe(tf: string): void {
-        this.tfEl.textContent = timeframeLabel(tf);
+        this.timeframe = tf;
+        this.tfEl.textContent = timeframeLabel(tf, this.opts.i18n);
+    }
+
+    /** Re-read every label in the current language. */
+    relocalize(): void {
+        for (const { el, label } of this.labels) el.setAttribute('aria-label', this.t(label));
+        this.setTimeframe(this.timeframe);
+        if (this.maxEl) this.setMaximizeActive(this.maximizeActive);
+        this.renderActions();
     }
 
     /** Light the maximize stop while something is isolated (a chart over the grid,
      *  or a maximized pane inside the active chart) — inverse chip + restore glyph. */
     setMaximizeActive(on: boolean): void {
         if (!this.maxEl) return;
+        this.maximizeActive = on;
         this.maxEl.classList.toggle('vela-mb-on', on);
-        this.maxEl.setAttribute('aria-label', on ? 'Restore layout' : 'Maximize chart');
+        this.maxEl.setAttribute('aria-label', this.t(on ? TEXT.restoreLayout : TEXT.maximizeChart));
         this.maxEl.replaceChildren(iconEl(on ? 'restore' : 'maximize', this.el.ownerDocument));
     }
 

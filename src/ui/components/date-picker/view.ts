@@ -1,13 +1,18 @@
 // DatePicker VIEW — a month calendar with month/year panel switches in its header.
 import { injectStyles } from '../../styles';
 import { iconEl } from '../../icons';
-import { datePickerController, WEEKDAY_LABELS, type DatePickerCell, type DatePickerControllerOptions } from './controller';
+import { msg } from '../../../core/i18n/message';
+import { englishTranslator } from '../../../core/i18n/translator';
+import { datePickerController, type DatePickerCell, type DatePickerControllerOptions } from './controller';
 import { DATE_PICKER_CSS, DATE_PICKER_STYLE_ID } from './styles';
 
 export interface DatePickerOptions extends DatePickerControllerOptions {
     /** A day was picked (`YYYY-MM-DD`). */
     onPick?: (value: string) => void;
 }
+
+const CHOOSE_MONTH = msg('ui.datePicker.chooseMonth', 'Choose month');
+const CHOOSE_YEAR = msg('ui.datePicker.chooseYear', 'Choose year');
 
 export class DatePicker {
     readonly el: HTMLDivElement;
@@ -33,20 +38,22 @@ export class DatePicker {
         this.prev.append(iconEl('chevron-left', doc));
         this.next = button('vela-date-picker-nav');
         this.next.append(iconEl('chevron-right', doc));
+        const i18n = opts.i18n ?? englishTranslator();
         this.monthBtn = button('vela-date-picker-switch');
-        this.monthBtn.setAttribute('aria-label', 'Choose month');
+        this.monthBtn.setAttribute('aria-label', i18n.t(CHOOSE_MONTH));
         this.yearBtn = button('vela-date-picker-switch');
-        this.yearBtn.setAttribute('aria-label', 'Choose year');
+        this.yearBtn.setAttribute('aria-label', i18n.t(CHOOSE_YEAR));
         const title = doc.createElement('div');
         title.className = 'vela-date-picker-title';
-        title.append(this.monthBtn, this.yearBtn);
+        if (this.ctrl.yearFirst) title.append(this.yearBtn, this.monthBtn);
+        else title.append(this.monthBtn, this.yearBtn);
         const head = doc.createElement('div');
         head.className = 'vela-date-picker-head';
         head.append(this.prev, title, this.next);
 
         this.week = doc.createElement('div');
         this.week.className = 'vela-date-picker-week';
-        for (const d of WEEKDAY_LABELS) {
+        for (const d of this.ctrl.weekdays()) {
             const cell = doc.createElement('span');
             cell.textContent = d;
             this.week.appendChild(cell);

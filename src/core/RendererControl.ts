@@ -2,6 +2,7 @@ import type { AxisLongPressEvent, ClickEvent, CrosshairEvent, DataWindowReadout,
 import type { Unsubscribe } from './util/types';
 import type { WallClock } from './util/wall-clock';
 import type { SymbolPickerFn } from './model/inputs';
+import type { MessageLike } from './i18n/types';
 
 /**
  * The public control surface for the active renderer — `chart.renderer`. A thin
@@ -233,7 +234,7 @@ export class RendererControl {
 
     /** Contribute host settings tabs (callback rows) to the renderer's settings dialog —
      *  e.g. the widget's Status line toggles. Silent no-op without a dialog. */
-    setSettingsSections(sections: ReadonlyArray<{ title: string; rows: readonly unknown[]; id?: string }>): this {
+    setSettingsSections(sections: ReadonlyArray<{ title: MessageLike; rows: readonly unknown[]; id?: string }>): this {
         this.renderer.setSettingsSections?.(sections);
         return this;
     }

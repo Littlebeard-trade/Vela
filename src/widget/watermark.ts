@@ -1,5 +1,8 @@
 // Symbol watermark — large faded "SYMBOL · TF" centered on the price pane, with a smaller
 // "Replay" line under it while the chart replays past bars.
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
+import type { Translator } from '../core/i18n/types';
 import { injectStyles } from '../ui/styles';
 import { iconEl } from '../ui/icons';
 import { timeframeLabel } from './timeframe';
@@ -66,6 +69,11 @@ export function watermarkFontPx(availPx: number, textPxAtMax: number): number {
     return Math.max(MIN_FONT_PX, Math.min(MAX_FONT_PX, Math.floor((MAX_FONT_PX * availPx * FILL) / textPxAtMax)));
 }
 
+const TEXT = {
+    replay: msg('widget.watermark.replay', 'Replay'),
+    mark: msg('widget.watermark.mark', '{symbol} · {timeframe}'),
+};
+
 export class Watermark {
     readonly el: HTMLElement;
     private readonly text: HTMLElement;
@@ -83,8 +91,17 @@ export class Watermark {
     private loading = true;
     private nameLine!: HTMLSpanElement;
     private nameFor = '';
+    private readonly replayText: Text;
+    private symbol = '';
+    private timeframe = '';
 
-    constructor(host: HTMLElement, symbol: string, timeframe: string) {
+    /** `i18n` reads the chart's translator (absent: English). */
+    constructor(
+        host: HTMLElement,
+        symbol: string,
+        timeframe: string,
+        private readonly i18n: () => Translator | null | undefined = () => null,
+    ) {
         injectStyles(STYLE_ID, CSS, host.ownerDocument);
         this.el = host.ownerDocument.createElement('div');
         this.el.className = 'vela-watermark';
@@ -97,7 +114,8 @@ export class Watermark {
         this.nameLine.className = 'vela-watermark-name';
         this.replayLine = host.ownerDocument.createElement('span');
         this.replayLine.className = 'vela-watermark-replay';
-        this.replayLine.append(iconEl('replay', host.ownerDocument), host.ownerDocument.createTextNode('Replay'));
+        this.replayText = host.ownerDocument.createTextNode(textOf(this.i18n(), TEXT.replay));
+        this.replayLine.append(iconEl('replay', host.ownerDocument), this.replayText);
         this.el.append(this.text, this.nameLine, this.replayLine);
         host.appendChild(this.el);
         // The el tracks the price pane (CSS insets on the host), so observing it
@@ -142,8 +160,11 @@ export class Watermark {
     }
 
     update(symbol: string, timeframe: string): void {
+        this.symbol = symbol;
+        this.timeframe = timeframe;
+        const i18n = this.i18n();
         // Bare ticker — the venue prefix is routing identity, not something to watermark.
-        this.text.textContent = symbol ? `${parseSymbol(symbol).ticker} · ${timeframeLabel(timeframe)}` : '';
+        this.text.textContent = symbol ? textOf(i18n, TEXT.mark, { symbol: parseSymbol(symbol).ticker, timeframe: timeframeLabel(timeframe, i18n) }) : '';
         // LB: the host may name the instrument ("E-mini Nasdaq-100", "SPDR S&P 500 ETF"): a string
         // or a promise of one; a late answer for a symbol the chart has since left is dropped
         this.nameFor = symbol;
@@ -157,6 +178,12 @@ export class Watermark {
         if (name && typeof (name as Promise<string>).then === 'function') (name as Promise<string>).then(apply, () => undefined);
         else apply(name);
         this.fit();
+    }
+
+    /** Re-read the mark and the replay line in the chart's language. */
+    relocalize(): void {
+        this.replayText.data = textOf(this.i18n(), TEXT.replay);
+        this.update(this.symbol, this.timeframe);
     }
 
     /** Measure the text at the cap and shrink it to the price pane's width. */

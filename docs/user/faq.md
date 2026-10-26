@@ -72,6 +72,29 @@ time + price, so restored drawings land on the right bars regardless of the curr
 Construct with `drawings: false` (or call `chart.drawings.showToolbar(false)`). The bar disappears,
 but the whole `chart.drawings` API keeps working headlessly.
 
+## How do I draw my own filled shapes and labels on the chart?
+
+Pick the route by who owns the shape:
+
+- **Shapes the user can see and edit** — add drawing tools from code:
+  `chart.drawings.add('box', { anchors })` for a filled rectangle, `'polyline'` for a
+  polygon, `'text'` for a label, and `'position'` for a risk/reward box with entry, stop and
+  target. Lock one with `chart.drawings.lock(id)` to keep it from being edited. See
+  [driving drawings from code](./drawing-tools.md#driving-drawings-from-code).
+- **Shapes your script computes** — an indicator script draws boxes, polylines, labels, lines
+  and fills through its engine (Pine Script's `box.new`, `polyline.new`, `label.new`, …), and
+  they follow the indicator through recomputes, replays and pane moves.
+- **Your own overlay graphics** — register a renderer layer with the plugin SDK. The layer gets
+  its own canvas, repainted with the chart, with the time and price to pixel mapping, so the
+  shapes stay aligned through pans, zooms and redraws. See
+  [renderer layers](../contributing/plugin-sdk.md#renderer-layers--registerrendererlayer).
+
+## Why doesn't a horizontal line's title show on the chart?
+
+A horizontal line from a script (Pine Script's `hline()`) draws the line only: the chart
+keeps its `title` but never paints it. To put text next to a level, draw a label at that
+price.
+
 ## Can I remove the in-chart Vela™ logo?
 
 The bottom-left mark is Vela™'s **attribution notice** (see the repository's `NOTICE`

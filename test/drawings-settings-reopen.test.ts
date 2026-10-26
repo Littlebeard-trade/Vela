@@ -83,7 +83,7 @@ describe('drawing settings reopened from the same toolbar', () => {
         await settled();
         commit(s.ratioInputs()[1]!, 0.25);
         commit(s.ratioInputs()[2]!, 0.4);
-        s.dialogButton('Ok').click();
+        s.dialogButton('OK').click();
         await settled();
         expect(ratios(s.live()).slice(0, 3)).toEqual([0, 0.25, 0.4]);
 
@@ -99,7 +99,7 @@ describe('drawing settings reopened from the same toolbar', () => {
         await settled();
         commit(s.ratioInputs()[1]!, 0.25);
         commit(s.ratioInputs()[2]!, 0.4);
-        s.dialogButton('Ok').click();
+        s.dialogButton('OK').click();
         await settled();
 
         s.barButton('Settings').click();

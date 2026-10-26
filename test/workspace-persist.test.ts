@@ -136,6 +136,34 @@ describe('sanitizeState (the applyState gate)', () => {
         });
     });
 
+    it('restores a saved Linear Regression Curve as an LSMA and its Slope mode as a Linear Regression Slope', () => {
+        const doc = sanitizeState({
+            version: 1,
+            layout: '1',
+            charts: [
+                {
+                    id: 'c1',
+                    indicators: {
+                        natives: [
+                            'linear-regression',
+                            { type: 'linear-regression', inputs: { length: 50, lineColor: '#ffffff', source: 'HL2' }, hidden: true },
+                            { type: 'linear-regression', inputs: { mode: 'Slope' } },
+                            { type: 'linear-regression', inputs: { mode: 'Slope', length: 20, lineColor: '#ffffff' } },
+                        ],
+                        manifest: [],
+                    },
+                },
+            ],
+        });
+        // The curve kept its 100-bar default when saved, which LSMA's own default no longer is.
+        expect(doc!.charts[0]!.indicators!.natives).toEqual([
+            { type: 'lsma', inputs: { length: 100 } },
+            { type: 'lsma', inputs: { length: 50, neutralColor: '#ffffff', source: 'HL2' }, hidden: true },
+            'linear-regression-slope',
+            { type: 'linear-regression-slope', inputs: { length: 20, lineColor: '#ffffff' } },
+        ]);
+    });
+
     it('keeps a valid session value and drops anything else', () => {
         const doc = sanitizeState({
             version: 1,

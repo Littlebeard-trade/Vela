@@ -1,10 +1,17 @@
 // Timezone drawer (mobile) — opened by a long-press on the time axis. Lists the same
 // rows as the desktop bottom-bar picker (exchange rule + every IANA zone); picking one
 // applies and closes.
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
+import type { Translator } from '../core/i18n/types';
 import { Drawer } from '../ui/components/drawer';
 import { iconEl } from '../ui/icons';
 import { injectStyles } from '../ui/styles';
 import { timezoneMenuRows } from './timezones';
+
+const TEXT = {
+    title: msg('widget.timezoneDrawer.title', 'Time zone'),
+};
 
 const STYLE_ID = 'vela-widget-timezone-drawer';
 const CSS = `
@@ -30,6 +37,8 @@ export interface TimezoneDrawerOptions {
     timezone: () => string;
     onTimezone: (zone: string) => void;
     onOpenChange?: (open: boolean) => void;
+    /** The shell's translator. Absent: English. */
+    i18n?: Translator;
 }
 
 export class TimezoneDrawer {
@@ -37,10 +46,11 @@ export class TimezoneDrawer {
 
     constructor(private readonly opts: TimezoneDrawerOptions) {
         injectStyles(STYLE_ID, CSS, opts.host.ownerDocument);
-        this.drawer = new Drawer({ host: opts.host, title: 'Time zone', onOpenChange: opts.onOpenChange });
+        this.drawer = new Drawer({ host: opts.host, title: textOf(opts.i18n, TEXT.title), onOpenChange: opts.onOpenChange });
     }
 
     open(): void {
+        this.drawer.setTitle(textOf(this.opts.i18n, TEXT.title));
         this.render();
         this.drawer.show();
     }
@@ -58,7 +68,7 @@ export class TimezoneDrawer {
         this.drawer.body.replaceChildren();
         const list = doc.createElement('div');
         list.className = 'vela-tzd-list';
-        for (const tz of timezoneMenuRows(this.opts.timezone())) {
+        for (const tz of timezoneMenuRows(this.opts.timezone(), this.opts.i18n)) {
             const row = doc.createElement('div');
             row.className = 'vela-tzd-row';
             const label = doc.createElement('span');

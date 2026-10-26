@@ -1,7 +1,13 @@
 // DatePicker CONTROLLER — the calendar's state, no DOM. Three panels: the days of a month,
 // the twelve months of a year, and a decade of years. The header month and year switch to
 // their panel; picking a year leads to its months and picking a month back to its days.
-// Dates travel as local `YYYY-MM-DD` strings.
+// Dates travel as local `YYYY-MM-DD` strings. Names, digits and the first day of the week
+// follow the `i18n` translator's locale (English, weeks from Sunday, without one); the
+// calendar is always Gregorian.
+import { msg } from '../../../core/i18n/message';
+import { englishTranslator, formatSettingsOf } from '../../../core/i18n/translator';
+import type { Translator } from '../../../core/i18n/types';
+import { monthNames, plainInteger, weekdayNames, yearBeforeMonth, yearLabel } from '../../../core/format/calendar';
 
 export type DatePickerPanel = 'date' | 'month' | 'year';
 
@@ -10,6 +16,10 @@ export interface DatePickerControllerOptions {
     value?: string;
     /** "Today" for the today ring and the initial month when nothing is selected. */
     today?: Date;
+    /** The translator whose locale names the months and weekdays, picks the first day of
+     *  the week and the digits: `chart.i18n` inside a chart, `createTranslator(...)`
+     *  elsewhere. Default: English, weeks starting on Sunday. */
+    i18n?: Translator;
 }
 
 /** One cell of the current panel. `blank` cells pad the first week of a month. */
@@ -29,6 +39,10 @@ export interface DatePickerController {
     readonly year: number;
     readonly month: number;
     readonly value: string | null;
+    /** Whether the locale writes the year before the month (the header's switch order). */
+    readonly yearFirst: boolean;
+    /** The weekday column labels, starting on the locale's first day of the week. */
+    weekdays(): string[];
     /** Header text: the month switch (hidden off the date panel) and the year switch. */
     header(): { month: string; monthVisible: boolean; year: string; yearDisabled: boolean };
     /** What the arrows step on the current panel. */
@@ -44,9 +58,21 @@ export interface DatePickerController {
     setValue(value: string | null): void;
 }
 
+/** @deprecated English only. The picker names months in its `i18n` locale; read the
+ *  shown name from `controller.header().month`. */
 export const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] as const;
-const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+/** @deprecated English only. The picker names weekdays in its `i18n` locale, from the
+ *  locale's first day of the week; read them from `controller.weekdays()`. */
 export const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const;
+
+const NAV = {
+    prevMonth: msg('ui.datePicker.previousMonth', 'Previous month'),
+    nextMonth: msg('ui.datePicker.nextMonth', 'Next month'),
+    prevYear: msg('ui.datePicker.previousYear', 'Previous year'),
+    nextYear: msg('ui.datePicker.nextYear', 'Next year'),
+    prevDecade: msg('ui.datePicker.previousDecade', 'Previous decade'),
+    nextDecade: msg('ui.datePicker.nextDecade', 'Next decade'),
+};
 
 /** `YYYY-MM-DD` for a local date. */
 export function isoDate(d: Date): string {
@@ -78,6 +104,13 @@ export function datePickerController(opts: DatePickerControllerOptions = {}): Da
     let year = selected?.getFullYear() ?? today.getFullYear();
     let month = selected?.getMonth() ?? today.getMonth();
     let panel: DatePickerPanel = 'date';
+    const i18n = opts.i18n ?? englishTranslator();
+    const settings = formatSettingsOf(i18n);
+    // Without a translator the picker keeps its historical Sunday-first grid.
+    const weekStart = opts.i18n ? i18n.weekStart : 0;
+    const monthsLong = monthNames(settings, 'long');
+    const monthsShort = monthNames(settings, 'short');
+    const num = (n: number): string => plainInteger(settings, n);
 
     const decade = (): number => Math.floor(year / 10) * 10;
 
@@ -94,37 +127,42 @@ export function datePickerController(opts: DatePickerControllerOptions = {}): Da
         get value() {
             return selected ? isoDate(selected) : null;
         },
+        yearFirst: yearBeforeMonth(settings),
+        weekdays() {
+            const names = weekdayNames(settings);
+            return Array.from({ length: 7 }, (_, i) => names[(weekStart + i) % 7]!);
+        },
         header() {
             return {
-                month: MONTH_LABELS[month] ?? '',
+                month: monthsLong[month] ?? '',
                 monthVisible: panel === 'date',
-                year: panel === 'year' ? `${decade()}-${decade() + 9}` : String(year),
+                year: panel === 'year' ? `${num(decade())}-${num(decade() + 9)}` : yearLabel(settings, year),
                 yearDisabled: panel === 'year', // in the decade panel the year reads as its title
             };
         },
         navLabels() {
-            if (panel === 'date') return { prev: 'Previous month', next: 'Next month' };
-            if (panel === 'month') return { prev: 'Previous year', next: 'Next year' };
-            return { prev: 'Previous decade', next: 'Next decade' };
+            if (panel === 'date') return { prev: i18n.t(NAV.prevMonth), next: i18n.t(NAV.nextMonth) };
+            if (panel === 'month') return { prev: i18n.t(NAV.prevYear), next: i18n.t(NAV.nextYear) };
+            return { prev: i18n.t(NAV.prevDecade), next: i18n.t(NAV.nextDecade) };
         },
         cells() {
             const out: DatePickerCell[] = [];
             if (panel === 'date') {
-                const startPad = new Date(year, month, 1).getDay();
+                const startPad = (new Date(year, month, 1).getDay() - weekStart + 7) % 7;
                 const days = new Date(year, month + 1, 0).getDate();
                 const todayIso = isoDate(today);
                 const selectedIso = selected ? isoDate(selected) : '';
                 for (let i = 0; i < startPad; i++) out.push({ label: '', value: '', checked: false, today: false, blank: true });
                 for (let day = 1; day <= days; day++) {
                     const iso = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                    out.push({ label: String(day), value: iso, checked: iso === selectedIso, today: iso === todayIso });
+                    out.push({ label: num(day), value: iso, checked: iso === selectedIso, today: iso === todayIso });
                 }
                 return out;
             }
             if (panel === 'month') {
                 for (let m = 0; m < 12; m++) {
                     out.push({
-                        label: MONTH_SHORT[m] ?? '',
+                        label: monthsShort[m] ?? '',
                         value: m,
                         checked: selected?.getFullYear() === year && selected.getMonth() === m,
                         today: today.getFullYear() === year && today.getMonth() === m,
@@ -135,7 +173,7 @@ export function datePickerController(opts: DatePickerControllerOptions = {}): Da
             // One padding year on each side, so the decade fills the same 3×4 grid as the months.
             const d = decade();
             for (let y = d - 1; y <= d + 10; y++) {
-                out.push({ label: String(y), value: y, checked: selected?.getFullYear() === y, today: today.getFullYear() === y, outside: y < d || y > d + 9 });
+                out.push({ label: num(y), value: y, checked: selected?.getFullYear() === y, today: today.getFullYear() === y, outside: y < d || y > d + 9 });
             }
             return out;
         },

@@ -62,6 +62,8 @@ class PaneRenderer implements IChartRenderer {
     orderCalls: string[][] = [];
     collapseCalls: { id: string; collapsed: boolean }[] = [];
     maximizeCalls: (string | null)[] = [];
+    ensureCalls: Pane[] = [];
+    weights = new Map<string, number>();
     private paneActionCb: ((a: PaneAction) => void) | null = null;
     private moveCb: ((id: string, target: MoveTarget) => void) | null = null;
 
@@ -73,7 +75,14 @@ class PaneRenderer implements IChartRenderer {
     destroy(): void {}
     setBars(): void {}
     updateBar(): void {}
-    ensurePane(pane: Pane): void { this.panes = this.panes.filter((p) => p.id !== pane.id); this.panes.push(pane); }
+    ensurePane(pane: Pane): void {
+        this.ensureCalls.push(pane);
+        this.panes = this.panes.filter((p) => p.id !== pane.id);
+        this.panes.push(pane);
+        if (!this.weights.has(pane.id)) this.weights.set(pane.id, pane.kind === 'price' ? 3 : 1);
+    }
+    setPaneHeightWeight(id: string, weight: number): void { this.weights.set(id, weight); }
+    paneHeightWeight(id: string): number | null { return this.weights.get(id) ?? null; }
     removePane(id: string): void { this.removedPanes.push(id); this.panes = this.panes.filter((p) => p.id !== id); }
     mountIndicator(model: IndicatorModel): IndicatorRenderHandle { this.mountedModels.push(model); return { id: model.id }; }
     updateIndicator(_h: IndicatorRenderHandle, _p: ScenePatch): void {}
@@ -111,6 +120,12 @@ class FlatRenderer extends PaneRenderer {
     };
     // Drop the pane-management methods so paneManagementSupported() is false.
     override setIndicatorPane = undefined as unknown as PaneRenderer['setIndicatorPane'];
+}
+
+/** Pane management, but no pane sizing (a custom renderer predating it). */
+class NoSizingRenderer extends PaneRenderer {
+    override setPaneHeightWeight = undefined as unknown as PaneRenderer['setPaneHeightWeight'];
+    override paneHeightWeight = undefined as unknown as PaneRenderer['paneHeightWeight'];
 }
 
 class MockEngine implements ScriptingEngine {
@@ -288,6 +303,99 @@ describe('pane management — renderer-initiated actions', () => {
         await flush();
         const merged = chart.panes.list().find((p) => p.id === paneA)!;
         expect(merged.indicators.map((i) => i.id).sort()).toEqual([a.id, b.id].sort());
+    });
+});
+
+describe('pane management — sizing', () => {
+    it('setHeightWeight drives the renderer, shows in list() and fires pane:changed', async () => {
+        const { chart, renderer } = await makeChart();
+        const a = chart.addIndicator('//@version=5\nindicator("A")\nplot(close)');
+        await flush();
+        const paneId = chart.panes.list().find((p) => p.indicators.some((i) => i.id === a.id))!.id;
+        expect(chart.panes.list().find((p) => p.id === paneId)!.heightWeight).toBe(1);
+
+        const changed = vi.fn();
+        chart.on('pane:changed', changed);
+        chart.panes.setHeightWeight('price', 6).setHeightWeight(paneId, 2);
+        expect(renderer.weights.get('price')).toBe(6);
+        const list = chart.panes.list();
+        expect(list.find((p) => p.id === 'price')!.heightWeight).toBe(6);
+        expect(list.find((p) => p.id === paneId)!.heightWeight).toBe(2);
+        expect(changed).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects a weight that is not positive, or an unknown pane, with a warning', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { chart, renderer } = await makeChart();
+        const changed = vi.fn();
+        chart.on('pane:changed', changed);
+        chart.panes.setHeightWeight('price', 0);
+        chart.panes.setHeightWeight('price', Number.NaN);
+        chart.panes.setHeightWeight('nope', 2);
+        expect(renderer.weights.has('price')).toBe(false);
+        expect(renderer.weights.has('nope')).toBe(false);
+        expect(changed).not.toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledTimes(3);
+        warn.mockRestore();
+    });
+
+    it('never sends a weight when another indicator mounts onto an existing pane', async () => {
+        const { chart, renderer } = await makeChart();
+        chart.addIndicator('//@version=5\nindicator("O1", overlay=true)\nplot(close)');
+        await flush();
+        chart.panes.setHeightWeight('price', 6);
+        renderer.ensureCalls.length = 0;
+
+        chart.addIndicator('//@version=5\nindicator("O2", overlay=true)\nplot(close)');
+        await flush();
+        const priceCalls = renderer.ensureCalls.filter((p) => p.id === 'price');
+        expect(priceCalls.length).toBeGreaterThan(0);
+        expect(priceCalls.every((p) => p.heightWeight === undefined)).toBe(true);
+        expect(chart.panes.list().find((p) => p.id === 'price')!.heightWeight).toBe(6);
+    });
+
+    it('a renderer resize action fires pane:changed', async () => {
+        const { chart, renderer } = await makeChart();
+        const a = chart.addIndicator('//@version=5\nindicator("A")\nplot(close)');
+        await flush();
+        const paneId = chart.panes.list().find((p) => p.indicators.some((i) => i.id === a.id))!.id;
+        const changed = vi.fn();
+        chart.on('pane:changed', changed);
+        renderer.weights.set(paneId, 1.5);
+        renderer.firePaneAction({ type: 'resize', paneIds: ['price', paneId] });
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(chart.panes.list().find((p) => p.id === paneId)!.heightWeight).toBe(1.5);
+    });
+
+    it('a renderer without pane sizing warns, and list() leaves heightWeight out', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { chart } = await makeChart(NoSizingRenderer);
+        chart.panes.setHeightWeight('price', 4);
+        expect(warn).toHaveBeenCalled();
+        expect('heightWeight' in chart.panes.list()[0]!).toBe(false);
+        warn.mockRestore();
+    });
+});
+
+describe('pane management — pane lifecycle events', () => {
+    it('fires pane:changed when a study pane is created, with the pane already listed', async () => {
+        const { chart } = await makeChart();
+        const seen: string[][] = [];
+        chart.on('pane:changed', () => seen.push(chart.panes.list().map((p) => p.id)));
+        const a = chart.addIndicator('//@version=5\nindicator("A")\nplot(close)');
+        await flush();
+        const paneId = chart.panes.list().find((p) => p.indicators.some((i) => i.id === a.id))!.id;
+        expect(seen.length).toBeGreaterThan(0);
+        expect(seen[0]).toContain(paneId);
+    });
+
+    it('does not fire pane:changed for an overlay joining the price pane', async () => {
+        const { chart } = await makeChart();
+        const changed = vi.fn();
+        chart.on('pane:changed', changed);
+        chart.addIndicator('//@version=5\nindicator("O", overlay=true)\nplot(close)');
+        await flush();
+        expect(changed).not.toHaveBeenCalled();
     });
 });
 

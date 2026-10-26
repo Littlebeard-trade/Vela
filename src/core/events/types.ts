@@ -3,6 +3,7 @@ import type { ScriptRun } from "../script-run";
 import type { OHLCV } from "../model/ohlcv";
 import type { DrawingTypeKey, SerializedDrawing } from "../drawings/Drawing";
 import type { VelaTheme } from "../options";
+import type { LocaleChangedEvent } from "../i18n/types";
 import type { SnapMode } from "../drawings/geometry";
 import type { DrawingMode } from "../drawings/port";
 import type { MarkClickEvent } from "../marks/types";
@@ -61,6 +62,12 @@ export interface VelaEventMap extends Record<string, unknown> {
    * leave the app theme alone.
    */
   "theme:changed": VelaTheme;
+  /**
+   * The chart's localization changed through `chart.setLocale(...)` — after the chart has
+   * re-rendered its text and numbers. Carries the resolved locale and chrome direction so
+   * host chrome around the chart can follow.
+   */
+  "locale:changed": LocaleChangedEvent;
   /**
    * The base price style is switching `from` → `to` (candles, line, area, a chart-type
    * id, …). Fires synchronously BEFORE the chart repaints in the new style, whatever

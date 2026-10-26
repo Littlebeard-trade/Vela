@@ -1,3 +1,4 @@
+import type { Translator } from '../../../core/i18n/types';
 import type { VelaTheme } from '../../../core/options';
 import type { IndicatorModel } from '../../../core/model/indicator';
 import type { OHLCV } from '../../../core/model/ohlcv';
@@ -21,6 +22,7 @@ import { tagTextColor } from './contrast';
 import { markGroupVisible } from '../../shared/marks-state';
 import { clusterTooltip, layoutMarkLane, markGlyphAt, markStackAt, type MarkLaneLayout, type PlacedGlyph } from './marks/layout';
 import { MarkIconRaster, paintMarkLane } from './marks/paint';
+import { beginPlotFrame } from '../core/plotDirection';
 
 /** Opacity factor of a price-axis label whose tick is `major: false` (de-emphasized). */
 const MINOR_LABEL_ALPHA = 0.5;
@@ -79,9 +81,9 @@ export class ChromeRenderer {
     }
 
     /** Hover text of the mark glyph under a plot point, or null. */
-    markTooltipAt(x: number, y: number, groups: ReadonlyArray<{ id: string; label: string }>): string | null {
+    markTooltipAt(x: number, y: number, groups: ReadonlyArray<{ id: string; label: string }>, i18n?: Translator | null): string | null {
         const g = this.markGlyphAt(x, y);
-        return g ? clusterTooltip(g.cluster, groups) : null;
+        return g ? clusterTooltip(g.cluster, groups, i18n) : null;
     }
 
     /** Wire the drawing coordinate resolvers + theme (call once per frame before use). */
@@ -127,7 +129,7 @@ export class ChromeRenderer {
         // The gutters (and their labels) use the surface the host passes (the live chart
         // background); everything data-side keeps the live theme.
         this.axisTextColor = surface?.textColor ?? theme.textColor;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        beginPlotFrame(ctx, dpr);
         ctx.clearRect(0, 0, fullW, fullH);
         // Paint the price-axis (right) + time-axis (bottom) gutters opaquely so drawings or
         // series pixels beneath never bleed into the scales. Data/drawings stay clear of
@@ -342,7 +344,7 @@ export class ChromeRenderer {
                 const sc = scene.indicatorScales.get(model.id)?.scale;
                 if (!sc) return;
                 const x = axisColumnX(dataW, k + 1); // column 0 is the master scale
-                for (const t of paneAxisTicks(sc, pane.bounds.height, undefined, scene.priceMintick)) {
+                for (const t of paneAxisTicks(sc, pane.bounds.height, undefined, scene.priceMintick, undefined, scene.format)) {
                     const y = coords.priceToY(t.price, sc, pane.bounds);
                     if (y < pane.bounds.top + 6 || y > pane.bounds.top + pane.bounds.height - 4) continue;
                     ctx.fillText(t.label, x + 5, y);
@@ -387,12 +389,12 @@ export class ChromeRenderer {
         }
 
         // ── axis chips: last-price label and/or countdown ──
-        const cdText = scene.showCountdown ? countdownText(last.time, coords.barInterval, Date.now()) : null;
+        const cdText = scene.showCountdown ? countdownText(last.time, coords.barInterval, Date.now(), scene.format) : null;
         const showCountdown = cdText !== null;
         const showLabel = scene.showPriceLabel;
         if (!showLabel && !showCountdown) return;
 
-        const priceText = formatAxisValue(pricePane.scale, pricePane.bounds.height, last.close, percentScaleFor(scene, pricePane), scene.priceMintick);
+        const priceText = formatAxisValue(pricePane.scale, pricePane.bounds.height, last.close, percentScaleFor(scene, pricePane), scene.priceMintick, undefined, scene.format, 'lastPrice');
         const PAD = 8;
         const x = dataW + 1;
         // Text color chosen for contrast against the chip's own color (so a white candle
@@ -529,7 +531,7 @@ export class ChromeRenderer {
         // step whose few ticks can all miss the frame); the collision pass below is
         // what actually prevents overlap.
         const target = Math.max(3, Math.min(8, Math.floor(dataW / 64)));
-        const ticks = timeTicks(tr.from, tr.to, target, offset)
+        const ticks = timeTicks(tr.from, tr.to, target, offset, scene.format)
             .map((tick) => ({ ...tick, x: coords.timeToX(tick.time), half: ctx.measureText(tick.label).width / 2 }))
             .filter((tick) => tick.x >= 20 && tick.x <= dataW - 20);
         // Measured collision pass on top: label pitch in PIXELS isn't uniform (bar-index

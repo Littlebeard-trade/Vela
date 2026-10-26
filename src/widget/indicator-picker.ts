@@ -1,11 +1,19 @@
 // Indicator picker — a dialog over the widget's indicator manifest: toggle entries on/off
 // (live add/remove on the current chart; state survives rebuilds via the widget).
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
+import type { MessageArgs, MessageLike, Translator } from '../core/i18n/types';
 import { Dialog } from '../ui/components/dialog';
 import { injectStyles } from '../ui/styles';
 import { iconEl } from '../ui/icons';
 
 export interface IndicatorRow {
+    /** The name the picker shows, in the shell's language. */
     name: string;
+    /** Other names search matches: the English name when {@link name} is a translation, and
+     *  the short title (`RSI`) in both languages. A reader of any language still finds an
+     *  indicator by the names its literature uses. */
+    aliases?: readonly string[];
     language?: string;
     category?: string;
     /** Core-computed (native) indicator — accent styling + 'native' routing. */
@@ -15,6 +23,20 @@ export interface IndicatorRow {
     /** Beta badge (native catalog flag). */
     beta?: boolean;
 }
+
+const TEXT = {
+    title: msg('widget.indicatorPicker.title', 'Indicators'),
+    search: msg('widget.indicatorPicker.search', 'Search…'),
+    beta: msg('widget.indicatorPicker.beta', 'beta'),
+    remove: msg('widget.indicatorPicker.remove', 'Remove from chart'),
+    onChart: msg('widget.indicatorPicker.onChart', 'On chart · {count}'),
+    general: msg('widget.indicatorPicker.general', 'General'),
+    noMatch: msg('widget.indicatorPicker.noMatch', 'No indicators match.'),
+    empty: msg('widget.indicatorPicker.empty', 'No indicators in the manifest.'),
+};
+
+/** The category of a row that declares none (an identity: the heading shows {@link TEXT.general}). */
+const GENERAL = 'General';
 
 const STYLE_ID = 'vela-widget-indpicker';
 const CSS = `
@@ -99,6 +121,8 @@ export interface IndicatorPickerOptions {
     onRemove: (instanceIndex: number) => void;
     onOpenChange?: (open: boolean) => void;
     host?: HTMLElement;
+    /** The shell's translator. Absent: English. */
+    i18n?: Translator;
 }
 
 export class IndicatorPicker {
@@ -114,7 +138,7 @@ export class IndicatorPicker {
         injectStyles(STYLE_ID, CSS, doc);
         this.search = doc.createElement('input');
         this.search.className = 'vela-ip-search';
-        this.search.placeholder = 'Search…';
+        this.search.placeholder = this.t(TEXT.search);
         this.search.spellcheck = false;
         this.search.addEventListener('input', () => this.refresh());
         const searchRow = doc.createElement('div');
@@ -123,7 +147,7 @@ export class IndicatorPicker {
         this.list = doc.createElement('div');
         this.list.className = 'vela-ip-list';
         this.dialog = new Dialog({
-            title: 'Indicators',
+            title: this.t(TEXT.title),
             host: opts.host,
             draggable: true,
             closeOnInteractOutside: true,
@@ -133,6 +157,7 @@ export class IndicatorPicker {
                 this.isOpen = open;
                 if (open) {
                     this.search.value = '';
+                    this.relabel();
                     this.refresh();
                     // Desktop only: focusing the search on a touch device would pop the
                     // on-screen keyboard over the just-opened fullscreen picker.
@@ -158,6 +183,16 @@ export class IndicatorPicker {
         this.dialog.show();
     }
 
+    /** The dialog's fixed text in the shell's language, re-read on every open. */
+    relabel(): void {
+        this.dialog.titleEl.textContent = this.t(TEXT.title);
+        this.search.placeholder = this.t(TEXT.search);
+    }
+
+    private t(text: MessageLike, values?: MessageArgs): string {
+        return textOf(this.opts.i18n, text, values);
+    }
+
     /** Re-render the lists if the dialog is open (async catalog updates land late). */
     sync(): void {
         if (this.isOpen) this.refresh();
@@ -173,11 +208,25 @@ export class IndicatorPicker {
 
     private refresh(): void {
         const doc = this.list.ownerDocument;
-        const q = this.search.value.trim().toLowerCase();
+        const raw = this.search.value.trim();
+        const locale = this.opts.i18n?.locale;
+        const lower = (s: string): string => {
+            try {
+                return s.toLocaleLowerCase(locale);
+            } catch {
+                return s.toLowerCase();
+            }
+        };
+        // A row matches by its shown name or by any of its aliases. Text folds by the reader's
+        // casing rules and by the default ones, so a Latin name typed under Turkish rules
+        // (where `I` lowers to `ı`) still matches.
+        const q = lower(raw);
+        const qPlain = raw.toLowerCase();
         const library = this.opts.library();
         const instances = this.opts.onChart();
         this.list.replaceChildren();
-        const match = (r: IndicatorRow): boolean => !q || r.name.toLowerCase().includes(q);
+        const match = (r: IndicatorRow): boolean =>
+            !raw || [r.name, ...(r.aliases ?? [])].some((n) => lower(n).includes(q) || n.toLowerCase().includes(qPlain));
 
         const rowEl = (r: IndicatorRow, opts: { library?: number; instance?: number }): HTMLElement => {
             const row = doc.createElement('div');
@@ -192,7 +241,7 @@ export class IndicatorPicker {
             if (r.beta) {
                 const beta = doc.createElement('span');
                 beta.className = 'vela-ip-badge';
-                beta.textContent = 'beta';
+                beta.textContent = this.t(TEXT.beta);
                 row.appendChild(beta);
             }
             if (opts.instance !== undefined) {
@@ -206,7 +255,7 @@ export class IndicatorPicker {
                 const trash = doc.createElement('button');
                 trash.className = 'vela-ip-trash';
                 trash.appendChild(iconEl('trash', doc));
-                trash.title = 'Remove from chart';
+                trash.title = this.t(TEXT.remove);
                 row.appendChild(trash);
             }
             return row;
@@ -219,17 +268,18 @@ export class IndicatorPicker {
             card.className = 'vela-ip-oncard';
             const title = doc.createElement('div');
             title.className = 'vela-ip-group';
-            title.textContent = `On chart · ${onChart.length}`;
+            title.textContent = this.t(TEXT.onChart, { count: onChart.length });
             card.appendChild(title);
             for (const [r, i] of onChart) card.appendChild(rowEl(r, { instance: i }));
             this.list.appendChild(card);
         }
 
-        // The library, grouped by category — clicking ADDS an instance (repeatable).
+        // The library, grouped by category — clicking ADDS an instance (repeatable). Rows
+        // without a category join "General", which the picker names in the shell's language.
         const byCat = new Map<string, Array<readonly [IndicatorRow, number]>>();
         library.forEach((r, i) => {
             if (!match(r)) return;
-            const cat = r.category ?? 'General';
+            const cat = r.category ?? GENERAL;
             const bucket = byCat.get(cat) ?? [];
             bucket.push([r, i] as const);
             byCat.set(cat, bucket);
@@ -241,14 +291,14 @@ export class IndicatorPicker {
         for (const [cat, bucket] of cats) {
             const title = doc.createElement('div');
             title.className = 'vela-ip-group';
-            title.textContent = cat;
+            title.textContent = cat === GENERAL ? this.t(TEXT.general) : cat;
             this.list.appendChild(title);
             for (const [r, i] of bucket) this.list.appendChild(rowEl(r, { library: i }));
         }
         if (!onChart.length && byCat.size === 0) {
             const empty = doc.createElement('div');
             empty.className = 'vela-ip-empty';
-            empty.textContent = library.length ? 'No indicators match.' : 'No indicators in the manifest.';
+            empty.textContent = this.t(library.length ? TEXT.noMatch : TEXT.empty);
             this.list.appendChild(empty);
         }
     }

@@ -1,5 +1,8 @@
 import { inputVisible, type InputSchema, type InputValue, type SymbolPickerFn } from '../../core/model/inputs';
 import type { VelaTheme } from '../../core/options';
+import type { MessageLike, Translator } from '../../core/i18n/types';
+import { msg, withValues } from '../../core/i18n/message';
+import { textOf } from '../../core/i18n/text';
 import { isDarkColor } from '../../core/color';
 import { iconAt } from '../../core/icons';
 import { applyChromeTokens } from './theme-tokens';
@@ -10,6 +13,7 @@ import { Dialog } from '../../ui/components/dialog';
 import { DatePicker, normalizeDateInput } from '../../ui/components/date-picker';
 import { fieldRow, fieldSection, buildFieldControl, fieldGridColumns, FIELD_GAP_PX } from '../../ui/components/field';
 import { overlayScrollbarCss, FIELD_FOCUS_CSS, FIELD_FOCUS_RING } from '../../ui/styles';
+import { withKitTranslator } from '../../ui/kit-text';
 
 /** Emitted when the user edits an input in the in-chart settings dialog. */
 export interface InputsUIChange {
@@ -50,11 +54,25 @@ export interface IndicatorDialogHost {
     mobile: () => boolean;
     dialogHost: () => HTMLElement | null;
     symbolPicker: () => SymbolPickerFn | null;
+    /** The chart's translator (the calendar's month names, week start and digits); absent = English. */
+    i18n?: () => Translator | null;
     onChange: ((c: InputsUIChange) => void) | null;
     onBackdropClose: () => void;
 }
 
 const SOURCES = ['close', 'open', 'high', 'low', 'hl2', 'hlc3', 'ohlc4', 'volume'];
+
+const TEXT = {
+    cancel: msg('chart.indicatorSettings.cancel', 'Cancel'),
+    ok: msg('chart.indicatorSettings.ok', 'OK'),
+    resetDefaults: msg('chart.indicatorSettings.resetDefaults', 'Reset defaults'),
+    close: msg('chart.indicatorSettings.close', 'Close'),
+    inputsTab: msg('chart.indicatorSettings.inputsTab', 'Inputs'),
+    propertiesTab: msg('chart.indicatorSettings.propertiesTab', 'Properties'),
+    openTimeList: msg('chart.indicatorSettings.openTimeList', 'Open time list'),
+    openCalendar: msg('chart.indicatorSettings.openCalendar', 'Open calendar'),
+    selectSymbol: msg('chart.indicatorSettings.selectSymbol', 'Select symbol…'),
+};
 
 /**
  * Indicator settings dialog — tabbed live-edit form opened from the legend gear.
@@ -78,6 +96,15 @@ export class IndicatorInputsDialog {
 
     constructor(private readonly host: IndicatorDialogHost) {}
 
+    /** The chart's translator, or null for English. */
+    private get i18n(): Translator | null {
+        return this.host.i18n?.() ?? null;
+    }
+
+    private t(m: MessageLike): string {
+        return textOf(this.i18n, m);
+    }
+
     isOpen(): boolean {
         return this.dialog !== null;
     }
@@ -91,6 +118,11 @@ export class IndicatorInputsDialog {
     };
 
     open(row: IndicatorDialogRow): void {
+        // Kit controls built here (steppers, color pickers) speak the chart's language too.
+        withKitTranslator(this.i18n, () => this.build(row));
+    }
+
+    private build(row: IndicatorDialogRow): void {
         this.close();
         if (row.inputs.length === 0 && row.props.length === 0) return;
         this.row = row;
@@ -118,8 +150,8 @@ export class IndicatorInputsDialog {
             footer: (foot) => {
                 foot.append(
                     this.resetAction(),
-                    this.dialogButton('Cancel', false, () => this.revertAndClose()),
-                    this.dialogButton('Ok', true, () => this.close()),
+                    this.dialogButton(this.t(TEXT.cancel), false, () => this.revertAndClose()),
+                    this.dialogButton(this.t(TEXT.ok), true, () => this.close()),
                 );
             },
             // Stale-guard: destroying a dialog fires its machine's onOpenChange(false)
@@ -132,7 +164,7 @@ export class IndicatorInputsDialog {
         this.dialogTips.push(attachChromeTooltip(ui.panel.querySelector('.vela-dialog-close') as HTMLElement, {
             host: this.host.container,
             theme: () => this.host.theme(),
-            text: () => 'Close',
+            text: () => this.t(TEXT.close),
         }));
 
         const tabDefs = tabInputs(row.inputs);
@@ -168,7 +200,7 @@ export class IndicatorInputsDialog {
         };
         for (const [idx, def] of tabDefs.entries()) {
             const tab = document.createElement('div');
-            tab.textContent = def.name;
+            tab.textContent = this.tabLabel(def.name);
             tab.className = 'vela-ind-tab';
             tab.style.cssText = `padding:0 0 8px;margin-bottom:-1px;border-bottom:2px solid transparent;${tabDefs.length > 1 ? 'cursor:pointer;' : ''}`;
             tab.addEventListener('click', () => activate(idx));
@@ -235,7 +267,7 @@ export class IndicatorInputsDialog {
             section.style.cssText = 'display:contents;';
             let header: HTMLElement | null = null;
             if (group.name) {
-                header = fieldSection(group.name, { variant: 'inputs', first: body.childElementCount === 0 });
+                header = fieldSection(group.label ? this.t(group.label) : group.name, { variant: 'inputs', first: body.childElementCount === 0 });
                 section.appendChild(header);
             }
             for (const inputRow of group.rows) {
@@ -304,7 +336,7 @@ export class IndicatorInputsDialog {
     /** The footer's reset button — same chip as Cancel, pinned to the LEFT edge
      *  (`margin-right:auto` against the footer's flex-end keeps Cancel/Ok right). */
     private resetAction(): HTMLButtonElement {
-        const b = this.dialogButton('Reset defaults', false, () => this.resetToDefaults());
+        const b = this.dialogButton(this.t(TEXT.resetDefaults), false, () => this.resetToDefaults());
         b.style.marginRight = 'auto';
         return b;
     }
@@ -356,26 +388,26 @@ export class IndicatorInputsDialog {
             return append(fieldRow({
                 label: '',
                 inline: decls.map((d) => ({
-                    label: nameOf(d) || undefined,
+                    label: nameOf(d, this.i18n) || undefined,
                     id: idOf(d),
                     control: this.buildControl(row, d, idOf(d)),
                     toggleFirst: d.type === 'bool',
                     fit: d.type === 'color' || d.type === 'bool',
                 })),
                 info: [...decls].reverse().find((d) => d.tooltip)?.tooltip
-                    ? this.infoButton([...decls].reverse().find((d) => d.tooltip)!.tooltip!)
+                    ? this.infoButton(this.tooltipOf([...decls].reverse().find((d) => d.tooltip)!))
                     : undefined,
             }));
         }
 
         const lead = decls[0]!;
         const id = idOf(lead);
-        const info = lead.tooltip ? this.infoButton(lead.tooltip) : undefined;
+        const info = lead.tooltip ? this.infoButton(this.tooltipOf(lead)) : undefined;
 
         if (lead.type === 'bool') {
             const current = Boolean(bagOf(row, lead)[lead.key] ?? lead.defval);
             return append(fieldRow({
-                label: nameOf(lead),
+                label: nameOf(lead, this.i18n),
                 id,
                 bool: true,
                 info,
@@ -389,7 +421,7 @@ export class IndicatorInputsDialog {
 
         if (lead.type === 'text_area') {
             return append(fieldRow({
-                label: nameOf(lead),
+                label: nameOf(lead, this.i18n),
                 id,
                 stacked: true,
                 info,
@@ -399,7 +431,7 @@ export class IndicatorInputsDialog {
 
         const fit = lead.type === 'color' || lead.type === 'session' || lead.type === 'time';
         return append(fieldRow({
-            label: nameOf(lead),
+            label: nameOf(lead, this.i18n),
             id,
             fit,
             controlWidth: fit ? undefined : 100,
@@ -416,7 +448,15 @@ export class IndicatorInputsDialog {
         if (inp.type === 'bool') {
             return buildFieldControl({ kind: 'switch', id, checked: Boolean(current), onChange: (v) => emit(v) }).el;
         }
-        if (inp.options && inp.options.length > 0) return this.select(id, inp.options.map(String), String(current), emit);
+        if (inp.options && inp.options.length > 0) {
+            const labels = inp.display?.options;
+            const pairs = inp.options.map((o) => {
+                const value = String(o);
+                const label = labels?.[value];
+                return { value, label: label ? this.t(label) : value };
+            });
+            return this.selectPairs(id, pairs, String(current), emit);
+        }
         if (inp.type === 'source') return this.select(id, SOURCES, String(current), emit);
         if (inp.type === 'color') {
             return buildFieldControl({
@@ -431,7 +471,7 @@ export class IndicatorInputsDialog {
             }).el;
         }
         if (inp.type === 'symbol') return this.buildSymbol(id, String(current), emit);
-        if (inp.type === 'timeframe') return this.selectPairs(id, TIMEFRAME_OPTIONS, String(current), emit);
+        if (inp.type === 'timeframe') return this.selectPairs(id, TIMEFRAME_OPTIONS.map((o) => ({ value: o.value, label: this.t(o.label) })), String(current), emit);
         if (inp.type === 'session') return this.buildSession(id, String(current), emit);
         if (inp.type === 'time') return this.buildTime(id, Number(current) || 0, emit);
         if (inp.type === 'text_area') {
@@ -461,6 +501,19 @@ export class IndicatorInputsDialog {
     /** A plain text field that commits on blur / Enter (shared by string inputs and the pickerless symbol field). */
     private buildTextField(id: string, current: string, emit: (v: InputValue) => void): HTMLElement {
         return buildFieldControl({ kind: 'text', id, value: current, onChange: emit }).el;
+    }
+
+    /** An input's tooltip as the chart's language reads it. */
+    private tooltipOf(inp: InputSchema): string {
+        return inp.display?.tooltip ? this.t(inp.display.tooltip) : (inp.tooltip ?? '');
+    }
+
+    /** A tab's strip label: the built-in tabs read translated, a script's own tab names
+     *  read as declared. */
+    private tabLabel(name: string): string {
+        if (name === DEFAULT_INPUT_TAB) return this.t(TEXT.inputsTab);
+        if (name === PROPS_TAB) return this.t(TEXT.propertiesTab);
+        return name;
     }
 
     /** The shared ⓘ hint carrying an input's `tooltip` (see {@link chromeHint}). */
@@ -537,7 +590,7 @@ export class IndicatorInputsDialog {
         chevron.type = 'button';
         chevron.tabIndex = -1;
         chevron.className = 'vela-ind-combo-chevron';
-        chevron.setAttribute('aria-label', 'Open time list');
+        chevron.setAttribute('aria-label', this.t(TEXT.openTimeList));
         chevron.innerHTML = CLOCK_SVG;
         let value = current;
         const commitTyped = (): void => {
@@ -598,7 +651,7 @@ export class IndicatorInputsDialog {
         chevron.type = 'button';
         chevron.tabIndex = -1;
         chevron.className = 'vela-ind-combo-chevron';
-        chevron.setAttribute('aria-label', 'Open calendar');
+        chevron.setAttribute('aria-label', this.t(TEXT.openCalendar));
         chevron.innerHTML = CALENDAR_SVG;
         let value = current;
         const commitTyped = (): void => {
@@ -666,6 +719,7 @@ export class IndicatorInputsDialog {
             content: (el) => {
                 const picker = new DatePicker({
                     value: current,
+                    i18n: this.host.i18n?.() ?? undefined,
                     onPick: (iso) => {
                         pop.hide();
                         onPick(iso);
@@ -694,7 +748,7 @@ export class IndicatorInputsDialog {
         btn.id = id;
         btn.style.cssText = `${this.ctrlStyle()}display:flex;align-items:center;cursor:pointer;text-align:left;`;
         const label = document.createElement('span');
-        label.textContent = value || 'Select symbol…';
+        label.textContent = value || this.t(TEXT.selectSymbol);
         label.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
         btn.append(label);
         btn.addEventListener('click', () => picker(value, (picked) => {
@@ -729,13 +783,14 @@ export class IndicatorInputsDialog {
 }
 
 /**
- * Display name for an input: its `title`, first letter capitalized. A blank title yields no label
- * (empty string) — the Pine idiom for a companion `inline=` control (e.g. `input.timeframe('1', '')`).
- * An omitted title is already substituted with the input's key upstream in `mapInputs`, so a blank
- * title reaching here is an explicit "no label" rather than a missing one.
+ * Display name for an input: its `title` (its translated `display.title` when it has one, in
+ * `i18n`'s language), first letter capitalized. A blank title yields no label (empty string) —
+ * the Pine idiom for a companion `inline=` control (e.g. `input.timeframe('1', '')`). An omitted
+ * title is already substituted with the input's key upstream in `mapInputs`, so a blank title
+ * reaching here is an explicit "no label" rather than a missing one.
  */
-export function nameOf(inp: InputSchema): string {
-    const t = inp.title;
+export function nameOf(inp: InputSchema, i18n?: Translator | null): string {
+    const t = inp.display?.title ? textOf(i18n, inp.display.title) : inp.title;
     return t.length > 0 ? t.charAt(0).toUpperCase() + t.slice(1) : '';
 }
 
@@ -808,6 +863,8 @@ function valuesBag(row: IndicatorDialogRow): Record<string, InputValue> {
 
 interface InputGroup {
     name: string | null;
+    /** The section heading's translatable text (its first member's `display.group`). */
+    label?: MessageLike;
     rows: InputSchema[][];
 }
 
@@ -829,6 +886,7 @@ function groupInputs(inputs: InputSchema[]): InputGroup[] {
     }
     return order.map((name) => {
         const members = byGroup.get(name)!;
+        const label = members.find((m) => m.display?.group)?.display?.group;
         const rows: InputSchema[][] = [];
         const inlineRowIndex = new Map<string, number>();
         for (const inp of members) {
@@ -840,7 +898,7 @@ function groupInputs(inputs: InputSchema[]): InputGroup[] {
                 rows.push([inp]);
             }
         }
-        return { name, rows };
+        return { name, ...(label ? { label } : {}), rows };
     });
 }
 
@@ -879,22 +937,25 @@ ${overlayScrollbarCss('.vela-dialog.vela-ind-dialog *', 9)}
     if (!existing) document.head.appendChild(s);
 }
 
+const MINUTES = msg('chart.indicatorSettings.timeframe.minutes', '{count, plural, one {# minute} other {# minutes}}');
+const HOURS = msg('chart.indicatorSettings.timeframe.hours', '{count, plural, one {# hour} other {# hours}}');
+
 /** `input.timeframe` choices — label shown, Pine resolution string committed (`''` = chart's). */
-const TIMEFRAME_OPTIONS: readonly { value: string; label: string }[] = [
-    { value: '', label: 'Chart' },
-    { value: '1', label: '1 minute' },
-    { value: '3', label: '3 minutes' },
-    { value: '5', label: '5 minutes' },
-    { value: '15', label: '15 minutes' },
-    { value: '30', label: '30 minutes' },
-    { value: '45', label: '45 minutes' },
-    { value: '60', label: '1 hour' },
-    { value: '120', label: '2 hours' },
-    { value: '180', label: '3 hours' },
-    { value: '240', label: '4 hours' },
-    { value: 'D', label: '1 day' },
-    { value: 'W', label: '1 week' },
-    { value: 'M', label: '1 month' },
+const TIMEFRAME_OPTIONS: readonly { value: string; label: MessageLike }[] = [
+    { value: '', label: msg('chart.indicatorSettings.timeframe.chart', 'Chart') },
+    { value: '1', label: withValues(MINUTES, { count: 1 }) },
+    { value: '3', label: withValues(MINUTES, { count: 3 }) },
+    { value: '5', label: withValues(MINUTES, { count: 5 }) },
+    { value: '15', label: withValues(MINUTES, { count: 15 }) },
+    { value: '30', label: withValues(MINUTES, { count: 30 }) },
+    { value: '45', label: withValues(MINUTES, { count: 45 }) },
+    { value: '60', label: withValues(HOURS, { count: 1 }) },
+    { value: '120', label: withValues(HOURS, { count: 2 }) },
+    { value: '180', label: withValues(HOURS, { count: 3 }) },
+    { value: '240', label: withValues(HOURS, { count: 4 }) },
+    { value: 'D', label: msg('chart.indicatorSettings.timeframe.day', '1 day') },
+    { value: 'W', label: msg('chart.indicatorSettings.timeframe.week', '1 week') },
+    { value: 'M', label: msg('chart.indicatorSettings.timeframe.month', '1 month') },
 ];
 
 /** HH:MM options at 30-minute steps (`00:00` … `23:30`) for the session + time dropdowns. */

@@ -1,3 +1,4 @@
+import { msg } from '../../i18n/message';
 import type { Projector } from '../geometry';
 import type { SerializedDrawing } from '../Drawing';
 import type { SettingsSchema } from '../schema';
@@ -124,8 +125,8 @@ export abstract class FibLevels extends FibRatios {
         return {
             fields: [
                 ...base.fields,
-                { path: 'style.extendLeft', label: 'Extend left', kind: 'boolean', group: 'line' },
-                { path: 'style.extendRight', label: 'Extend right', kind: 'boolean', group: 'line' },
+                { path: 'style.extendLeft', label: msg('drawing.field.extendLeft', 'Extend left'), kind: 'boolean', group: 'line' },
+                { path: 'style.extendRight', label: msg('drawing.field.extendRight', 'Extend right'), kind: 'boolean', group: 'line' },
             ],
         };
     }

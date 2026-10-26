@@ -29,8 +29,19 @@ export interface IndicatorRecord {
      * `prepared`/`session`). The two paths share the registry, handle, legend, and lifecycle events.
      * `stale` marks an instance re-created for a NEW market while the indicator was hidden —
      * showing it must START the fresh instance instead of resuming the old market's compute.
+     * `revokeContext` kills the running instance's context once it is stopped.
+     * `heldForHistory` marks a `waitsForHistory` instance whose start is deferred until the
+     * chart's history completes (its legend row is a loading placeholder meanwhile).
      */
-    native?: { type: string; instance: NativeIndicator; descriptor: NativeIndicatorDescriptor; stale?: boolean; started?: boolean };
+    native?: {
+        type: string;
+        instance: NativeIndicator;
+        descriptor: NativeIndicatorDescriptor;
+        stale?: boolean;
+        started?: boolean;
+        heldForHistory?: boolean;
+        revokeContext?: () => void;
+    };
     /** Routing/inputs options from addIndicator (used to re-route on a fresh first model). */
     options?: AddIndicatorOptions;
     /** The engine selected for this indicator's language. */

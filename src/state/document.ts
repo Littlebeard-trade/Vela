@@ -265,6 +265,24 @@ function sanitizeDrawingTools(raw: unknown): DrawingToolsState | null {
     return Object.keys(out).length > 0 ? out : null;
 }
 
+/** A retired built-in native rewritten as the study that replaced it, so a saved chart
+ *  restores the same study instead of an unregistered type. The combined Linear
+ *  Regression (type `linear-regression`, a Curve/Slope `mode`) became two studies. */
+function successorNative(entry: PersistedNativeEntry): PersistedNativeEntry {
+    const type = typeof entry === 'string' ? entry : entry.type;
+    if (type !== 'linear-regression') return entry;
+    const hidden = typeof entry === 'object' && entry.hidden === true;
+    const { mode, lineColor, ...rest } = typeof entry === 'object' ? (entry.inputs ?? {}) : {};
+    const slope = mode === 'Slope';
+    const inputs: Record<string, unknown> = slope
+        ? { ...rest, ...(lineColor !== undefined ? { lineColor } : {}) }
+        : // Saved deltas omit the curve's 100-bar default, which the LSMA's default is not.
+          { length: 100, ...rest, ...(lineColor !== undefined ? { neutralColor: lineColor } : {}) };
+    const next = slope ? 'linear-regression-slope' : 'lsma';
+    const hasInputs = Object.keys(inputs).length > 0;
+    return hasInputs || hidden ? { type: next, ...(hasInputs ? { inputs } : {}), ...(hidden ? { hidden } : {}) } : next;
+}
+
 function sanitizeCell(raw: unknown): CellState | null {
     if (raw == null || typeof raw !== 'object') return null;
     const c = raw as Record<string, unknown>;
@@ -313,7 +331,7 @@ function sanitizeCell(raw: unknown): CellState | null {
                       return [inputs || hidden || scaleValue ? { type: e.type, ...(inputs ? { inputs } : {}), ...(hidden ? { hidden } : {}), ...(scaleValue ? { scaleValue } : {}) } : e.type];
                   }
                   return [];
-              })
+              }).map(successorNative)
             : [];
         out.indicators = { manifest, natives };
     }

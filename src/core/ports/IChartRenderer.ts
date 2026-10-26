@@ -9,6 +9,13 @@ import type { Unsubscribe } from '../util/types';
 import type { WallClock } from '../util/wall-clock';
 import type { IDrawingsRendererPort } from '../drawings/port';
 import type { MarkClickEvent, MarkGroup, TimelineMark } from '../marks/types';
+import type { MessageLike, TextDirection, Translator } from '../i18n/types';
+
+/** The language and direction attributes of a renderer's root element (`null` = unset). */
+export interface RendererRootAttributes {
+    lang: string | null;
+    dir: TextDirection | null;
+}
 
 /** What a rendering backend supports — drives graceful degradation + warnings. */
 export interface RendererCapabilities {
@@ -131,6 +138,9 @@ export interface CrosshairEvent {
      *  horizontal level from the price pane). Optional and additive: a renderer that
      *  doesn't track panes omits it. */
     paneKind?: 'price' | 'study' | null;
+    /** The id of the pane under the cursor — the same id `chart.panes.list()` reports;
+     *  null off the plot. Optional and additive, like {@link paneKind}. */
+    paneId?: string | null;
     /** Value at the crosshair per series, keyed by stable series id. */
     values: ReadonlyMap<string, number>;
     /** The hovered price bar's OHLCV (null when the cursor is off any bar). */
@@ -139,7 +149,12 @@ export interface CrosshairEvent {
 
 export interface ClickEvent {
     time: Millis | null;
+    /** Value at the click on its pane's scale, as {@link CrosshairEvent.price}. */
     price: number | null;
+    /** The kind of pane clicked; null off the plot. Optional — a renderer that doesn't track panes omits it. */
+    paneKind?: 'price' | 'study' | null;
+    /** The id of the pane clicked (as `chart.panes.list()` reports it); null off the plot. Optional. */
+    paneId?: string | null;
 }
 
 /** A touch long-press on an axis strip — the mobile substitute for a right-click menu. */
@@ -207,7 +222,9 @@ export type PaneAction =
     | { type: 'move'; paneId: string; dir: 'up' | 'down' }
     | { type: 'remove'; paneId: string }
     | { type: 'collapse'; paneId: string; collapsed: boolean }
-    | { type: 'maximize'; paneId: string; maximized: boolean };
+    | { type: 'maximize'; paneId: string; maximized: boolean }
+    /** The user finished resizing panes (a separator drag or reset); read the new weights back through `paneHeightWeight`. */
+    | { type: 'resize'; paneIds: string[] };
 
 /**
  * The rendering backend abstraction. No backend (e.g. lightweight-charts) types
@@ -228,6 +245,14 @@ export interface IChartRenderer {
 
     mount(container: HTMLElement, theme: VelaTheme): void;
     setTheme(theme: VelaTheme): void;
+    /**
+     * Adopt the chart's localization: render text through `i18n` and numbers and dates
+     * through `i18n.format`, then repaint. Called once after `mount` and again after every
+     * `chart.setLocale`. `lang` and `dir` are what the renderer's root element should carry
+     * (`null` = leave the attribute alone, the host page decides). Optional: a renderer
+     * without it keeps English text and formatting.
+     */
+    setLocalization?(i18n: Translator, root: RendererRootAttributes): void;
     resize(): void;
     destroy(): void;
 
@@ -303,6 +328,14 @@ export interface IChartRenderer {
     setPaneCollapsed?(paneId: string, collapsed: boolean): void;
     /** Maximize one pane to fill the plot, or restore the previous split (`null`). */
     setPaneMaximized?(paneId: string | null): void;
+    /**
+     * Set a pane's height weight: panes share the plot height in proportion to their weights
+     * (collapsed panes aside). The weight must survive later `ensurePane` calls that carry
+     * none — only an explicit `heightWeight` replaces it.
+     */
+    setPaneHeightWeight?(paneId: string, weight: number): void;
+    /** A pane's current height weight, or null when the renderer has no such pane. */
+    paneHeightWeight?(paneId: string): number | null;
     /**
      * The renderer reports a user-initiated pane action (from a pane hover button or a
      * double-click). The host/core reflects it: `'remove'` tears down the pane's
@@ -506,7 +539,7 @@ export interface IChartRenderer {
     onChartTypeSettingsChange?(cb: (typeId: string, values: Record<string, unknown>) => void): Unsubscribe;
     /** Host-app settings tabs (callback rows) shown by the renderer's settings dialog.
      *  `id` names a section for the visibility policy (defaults to the title's slug). */
-    setSettingsSections?(sections: ReadonlyArray<{ title: string; rows: readonly unknown[]; id?: string }>): void;
+    setSettingsSections?(sections: ReadonlyArray<{ title: MessageLike; rows: readonly unknown[]; id?: string }>): void;
     /** Settings-dialog visibility policy: `hidden` lists setting ids to hide (a tab, a
      *  group, or a row — subtree semantics). Presentation-only: hidden values keep
      *  being stored and applied. Optional — a renderer without a settings dialog omits it. */

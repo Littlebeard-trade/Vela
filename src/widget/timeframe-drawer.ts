@@ -2,9 +2,12 @@
 // PLUS the desktop bottombar's range chips: date ranges first (horizontally scrollable),
 // then the timeframe presets. Selection state is re-read on every open, so it always
 // mirrors whatever path last changed the timeframe (quick entry, API, a range chip).
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
+import type { MessageLike, Translator } from '../core/i18n/types';
 import { Drawer } from '../ui/components/drawer';
 import { injectStyles } from '../ui/styles';
-import type { RangePreset } from './bottombar';
+import { rangeLabel, type RangePreset } from './bottombar';
 import { timeframeLabel } from './timeframe';
 
 const STYLE_ID = 'vela-widget-tf-drawer';
@@ -59,6 +62,11 @@ const CSS = `
 }
 `;
 
+const TEXT = {
+    dateRange: msg('widget.timeframeDrawer.dateRange', 'Date Range'),
+    timeframes: msg('widget.timeframeDrawer.timeframes', 'Timeframes'),
+};
+
 export interface TimeframeDrawerOptions {
     host: HTMLElement;
     timeframes: readonly string[];
@@ -70,12 +78,15 @@ export interface TimeframeDrawerOptions {
     onTimeframe: (tf: string) => void;
     onRange: (preset: RangePreset) => void;
     onOpenChange?: (open: boolean) => void;
+    /** The shell's translator. Absent: English. */
+    i18n?: Translator;
 }
 
 export class TimeframeDrawer {
     private readonly drawer: Drawer;
     private readonly rangeChips = new Map<string, HTMLButtonElement>();
     private readonly tfChips = new Map<string, HTMLButtonElement>();
+    private readonly headings: Array<{ el: HTMLElement; text: MessageLike }> = [];
 
     constructor(private readonly opts: TimeframeDrawerOptions) {
         const doc = opts.host.ownerDocument;
@@ -84,14 +95,14 @@ export class TimeframeDrawer {
 
         const rangeHeading = doc.createElement('div');
         rangeHeading.className = 'vela-tfd-heading';
-        rangeHeading.textContent = 'Date Range';
+        this.headings.push({ el: rangeHeading, text: TEXT.dateRange });
 
         const ranges = doc.createElement('div');
         ranges.className = 'vela-tfd-ranges';
         for (const preset of opts.ranges) {
             const chip = doc.createElement('button');
             chip.className = 'vela-tfd-chip';
-            chip.textContent = preset.id;
+            chip.textContent = rangeLabel(preset.id, opts.i18n);
             chip.addEventListener('click', () => {
                 opts.onRange(preset);
                 this.drawer.hide();
@@ -102,14 +113,14 @@ export class TimeframeDrawer {
 
         const tfHeading = doc.createElement('div');
         tfHeading.className = 'vela-tfd-heading';
-        tfHeading.textContent = 'Timeframes';
+        this.headings.push({ el: tfHeading, text: TEXT.timeframes });
 
         const grid = doc.createElement('div');
         grid.className = 'vela-tfd-grid';
         for (const tf of opts.timeframes) {
             const chip = doc.createElement('button');
             chip.className = 'vela-tfd-chip';
-            chip.textContent = timeframeLabel(tf);
+            chip.textContent = timeframeLabel(tf, opts.i18n);
             chip.addEventListener('click', () => {
                 opts.onTimeframe(tf);
                 this.drawer.hide();
@@ -119,9 +130,19 @@ export class TimeframeDrawer {
         }
 
         this.drawer.body.append(rangeHeading, ranges, tfHeading, grid);
+        this.relabel();
+    }
+
+    /** Headings and chips in the current language. */
+    private relabel(): void {
+        const i18n = this.opts.i18n;
+        for (const { el, text } of this.headings) el.textContent = textOf(i18n, text);
+        for (const [id, chip] of this.rangeChips) chip.textContent = rangeLabel(id, i18n);
+        for (const [tf, chip] of this.tfChips) chip.textContent = timeframeLabel(tf, i18n);
     }
 
     open(): void {
+        this.relabel();
         const tf = this.opts.currentTimeframe();
         const range = this.opts.activeRange();
         for (const [id, chip] of this.rangeChips) {

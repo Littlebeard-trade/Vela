@@ -2,6 +2,9 @@
 // (`chart.data.symbols()`). Kit Dialog + a lightweight ranked filter; selection reports
 // the ticker upward (the widget rebuilds the chart on it).
 import type { SymbolDescriptor } from '../core/ports/DataProvider';
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
+import type { MessageDescriptor, Translator } from '../core/i18n/types';
 import { Dialog } from '../ui/components/dialog';
 import { injectStyles } from '../ui/styles';
 import { iconEl } from '../ui/icons';
@@ -249,7 +252,40 @@ export interface SymbolPickerOptions {
     /** The row's icon URL — routed to the descriptor's OWNING provider
      *  (`resolveSymbolIcon`). Absent or `undefined` per row ⇒ the initials badge. */
     iconFor?: (d: SymbolDescriptor) => string | undefined;
+    /** The shell's translator. Absent: English. */
+    i18n?: Translator;
 }
+
+const TEXT = {
+    title: msg('widget.symbolPicker.title', 'Symbol Search'),
+    search: msg('widget.symbolPicker.search', 'Search symbol…'),
+    noMatch: msg('widget.symbolPicker.noMatch', 'No symbols match.'),
+    empty: msg('widget.symbolPicker.empty', 'No symbols available yet.'),
+    showContracts: msg('widget.symbolPicker.showContracts', 'Show contracts'),
+};
+
+type SymbolTab = 'all' | 'stocks' | 'etfs' | 'crypto' | 'futures' | 'forex' | 'commodities';
+
+/** The type tabs, keyed by id; the label is display text only. */
+const TABS: ReadonlyArray<{ id: SymbolTab; label: MessageDescriptor }> = [
+    { id: 'all', label: msg('widget.symbolPicker.tab.all', 'All') },
+    { id: 'stocks', label: msg('widget.symbolPicker.tab.stocks', 'Stocks') },
+    { id: 'etfs', label: msg('widget.symbolPicker.tab.etfs', 'ETFs') },
+    { id: 'crypto', label: msg('widget.symbolPicker.tab.crypto', 'Crypto') },
+    { id: 'futures', label: msg('widget.symbolPicker.tab.futures', 'Futures') },
+    { id: 'forex', label: msg('widget.symbolPicker.tab.forex', 'Forex') },
+    { id: 'commodities', label: msg('widget.symbolPicker.tab.commodities', 'Commodities') },
+];
+
+/** The descriptor types each tab lists (crypto adds perpetual futures, below). */
+const TAB_TYPES: Readonly<Record<Exclude<SymbolTab, 'all'>, readonly string[]>> = {
+    crypto: ['crypto'],
+    stocks: ['stock'],
+    etfs: ['etf'],
+    futures: ['futures', 'root'],
+    forex: ['forex'],
+    commodities: ['commodity'],
+};
 
 /** Rows rendered per page — the list GROWS by this much every time the scroll nears the
  *  bottom, so a 13k-symbol venue browses whole without ever rendering 13k rows up front. */
@@ -263,7 +299,8 @@ export class SymbolPicker {
     private rows: SymbolDescriptor[] = [];
     private highlighted = 0;
     private seed = '';
-    private activeTab = 'All';
+    private activeTab: SymbolTab = 'all';
+    private readonly tabButtons: Array<{ el: HTMLButtonElement; label: MessageDescriptor }> = [];
     private tabs!: HTMLElement;
     private visible = PAGE;
     /** The last filter pass returned fewer raw rows than asked — the pool is drained
@@ -281,7 +318,7 @@ export class SymbolPicker {
 
         this.input = doc.createElement('input');
         this.input.className = 'vela-sp-input';
-        this.input.placeholder = 'Search symbol…';
+        this.input.placeholder = textOf(opts.i18n, TEXT.search);
         this.input.setAttribute('spellcheck', 'false');
         const searchRow = doc.createElement('div');
         searchRow.className = 'vela-sp-searchrow';
@@ -290,13 +327,15 @@ export class SymbolPicker {
         this.tabs.className = 'vela-sp-tabs';
         const head = doc.createElement('div');
         head.className = 'vela-sp-head';
-        for (const t of ['All', 'Stocks', 'ETFs', 'Crypto', 'Futures', 'Forex', 'Commodities']) {
+        for (const tab of TABS) {
             const b = doc.createElement('button');
             b.className = 'vela-sp-tab';
-            b.textContent = t;
-            if (t === this.activeTab) b.dataset.active = '1';
+            b.dataset.tab = tab.id;
+            b.textContent = textOf(opts.i18n, tab.label);
+            this.tabButtons.push({ el: b, label: tab.label });
+            if (tab.id === this.activeTab) b.dataset.active = '1';
             b.addEventListener('click', () => {
-                this.activeTab = t;
+                this.activeTab = tab.id;
                 for (const c of this.tabs.children) delete (c as HTMLElement).dataset.active;
                 b.dataset.active = '1';
                 this.refresh();
@@ -318,13 +357,14 @@ export class SymbolPicker {
         });
 
         this.dialog = new Dialog({
-            title: 'Symbol Search',
+            title: textOf(opts.i18n, TEXT.title),
             host: opts.host,
             closeOnInteractOutside: true,
             flush: true,
             content: (body) => body.append(head, this.list),
             onOpenChange: (open) => {
                 if (open) {
+                    this.relabel();
                     this.input.value = this.seed.toUpperCase();
                     this.seed = '';
                     this.refresh();
@@ -483,13 +523,18 @@ export class SymbolPicker {
         return this.ranked?.result ?? raw;
     }
 
+    /** The dialog's fixed text in the shell's language, re-read on every open. */
+    relabel(): void {
+        const i18n = this.opts.i18n;
+        this.dialog.titleEl.textContent = textOf(i18n, TEXT.title);
+        this.input.placeholder = textOf(i18n, TEXT.search);
+        for (const { el, label } of this.tabButtons) el.textContent = textOf(i18n, label);
+    }
+
     private computeRows(): SymbolDescriptor[] {
-        const TAB_TYPES: Record<string, string[]> = { Crypto: ['crypto'], Stocks: ['stock'], ETFs: ['etf'], Futures: ['futures', 'root'], Forex: ['forex'], Commodities: ['commodity'] };
         const all = this.pool();
-        const pool =
-            this.activeTab === 'All'
-                ? all
-                : all.filter((s) => TAB_TYPES[this.activeTab]?.includes((s.type ?? '').toLowerCase()) || (this.activeTab === 'Crypto' && (s.type ?? '').toLowerCase() === 'futures'));
+        const tab = this.activeTab;
+        const pool = tab === 'all' ? all : all.filter((s) => TAB_TYPES[tab].includes((s.type ?? '').toLowerCase()) || (tab === 'crypto' && (s.type ?? '').toLowerCase() === 'futures'));
         // A registered ranking OWNS the empty-query head — the built-in majors pin
         // stands down and the pool's own order shows.
         const filtered = filterSymbols(pool, this.input.value, this.visible, symbolRanking() ? false : TOP_TICKERS);
@@ -523,7 +568,7 @@ export class SymbolPicker {
         if (!this.rows.length) {
             const empty = doc.createElement('div');
             empty.className = 'vela-sp-empty';
-            empty.textContent = this.input.value ? 'No symbols match.' : 'No symbols indexed (provider still loading?).';
+            empty.textContent = textOf(this.opts.i18n, this.input.value ? TEXT.noMatch : TEXT.empty);
             this.list.appendChild(empty);
             return;
         }
@@ -566,7 +611,7 @@ export class SymbolPicker {
             row.dataset.group = '1';
             const expander = doc.createElement('button');
             expander.className = 'vela-sp-expander';
-            expander.setAttribute('aria-label', 'Show contracts');
+            expander.setAttribute('aria-label', textOf(this.opts.i18n, TEXT.showContracts));
             expander.appendChild(iconEl(this.expanded.has(groupKeyOf(s)) ? 'chevron-down' : 'chevron-right', doc));
             row.appendChild(expander);
         } else if (s.group != null && this.expanded.has(groupKeyOf(s))) row.dataset.member = '1';

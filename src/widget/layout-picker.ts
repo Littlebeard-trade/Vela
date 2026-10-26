@@ -8,10 +8,20 @@
 // rather than a kit Menu: it mixes a canvas and switch rows, which is beyond the menu
 // machine's item model. The host element provides the theme tokens (the panel portals
 // inside it, same as the menu positioner).
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
+import type { MessageLike, Translator } from '../core/i18n/types';
 import { injectStyles } from '../ui/styles';
 import { Tooltip } from '../ui/components/tooltip';
 import { announceSurface } from '../ui/surface-events';
 import { holdForExit, type SurfaceExit } from '../ui/surface-exit';
+
+const TEXT = {
+    layout: msg('widget.layoutPicker.layout', 'Layout'),
+    sync: msg('widget.layoutPicker.sync', 'Sync'),
+    gridHint: msg('widget.layoutPicker.gridHint', 'Click a square to apply that columns × rows layout.'),
+    gridSize: msg('widget.layoutPicker.gridSize', '{cols} × {rows}'),
+};
 
 const STYLE_ID = 'vela-widget-layout-picker-v15';
 // One monochrome selection language across the panel: lit cells and sync ON
@@ -125,9 +135,14 @@ const GRID = 4;
 /** The current layout's footprint on the canvas (mirrors the workspace's LayoutShape). */
 export type LayoutPickerShape = { rows: number; cols: number };
 
+/** A grid layout's name, columns by rows (`2 × 3`), in the shell's language. */
+export function layoutGridLabel(cols: number, rows: number, i18n?: Translator | null): string {
+    return textOf(i18n, TEXT.gridSize, { cols, rows });
+}
+
 /** Build the bare 4×4 canvas (16 squares, row-major). Interaction wiring stays with the
  *  caller — the desktop popover adds hover previews, the mobile drawer taps to apply. */
-export function layoutGridCanvas(doc: Document): { el: HTMLElement; squares: HTMLButtonElement[] } {
+export function layoutGridCanvas(doc: Document, i18n?: Translator | null): { el: HTMLElement; squares: HTMLButtonElement[] } {
     injectStyles(STYLE_ID, CSS, doc);
     const el = doc.createElement('div');
     el.className = 'vela-lp-grid';
@@ -138,7 +153,7 @@ export function layoutGridCanvas(doc: Document): { el: HTMLElement; squares: HTM
             sq.className = 'vela-lp-sq';
             sq.dataset.r = String(r);
             sq.dataset.c = String(c);
-            sq.setAttribute('aria-label', `${c + 1} × ${r + 1}`);
+            sq.setAttribute('aria-label', textOf(i18n, TEXT.gridSize, { cols: c + 1, rows: r + 1 }));
             squares.push(sq);
             el.appendChild(sq);
         }
@@ -170,6 +185,8 @@ export interface LayoutPickerOptions {
     syncs: () => Array<{ id: string; label: string; checked: boolean }>;
     onToggleSync: (id: string) => void;
     onOpenChange?: (open: boolean) => void;
+    /** The shell's translator (headings, help, square names). Absent: English. */
+    i18n?: Translator;
 }
 
 export class LayoutPicker {
@@ -182,6 +199,8 @@ export class LayoutPicker {
     private readonly infoTip: Tooltip;
     private readonly presetsEl: HTMLElement;
     private readonly syncEl: HTMLElement;
+    /** Fixed text re-read in the current language on every open. */
+    private readonly fixedText: Array<{ el: HTMLElement; text: MessageLike }> = [];
 
     private isOpen = false;
     /** The card's exit animation after a close; a reopen cancels it. */
@@ -222,7 +241,8 @@ export class LayoutPicker {
         const layoutHeading = doc.createElement('div');
         layoutHeading.className = 'vela-lp-heading';
         const headingText = doc.createElement('span');
-        headingText.textContent = 'Layout';
+        headingText.textContent = textOf(opts.i18n, TEXT.layout);
+        this.fixedText.push({ el: headingText, text: TEXT.layout });
         const badge = doc.createElement('span');
         badge.className = 'vela-lp-badge';
         badge.textContent = '?';
@@ -234,7 +254,7 @@ export class LayoutPicker {
             content: () => this.tipNode(),
         });
 
-        const { el: grid, squares } = layoutGridCanvas(doc);
+        const { el: grid, squares } = layoutGridCanvas(doc, opts.i18n);
         this.squares.push(...squares);
         layoutCol.appendChild(grid);
 
@@ -251,7 +271,8 @@ export class LayoutPicker {
         const syncCol = doc.createElement('div');
         const syncHeading = doc.createElement('div');
         syncHeading.className = 'vela-lp-heading';
-        syncHeading.textContent = 'Sync';
+        syncHeading.textContent = textOf(opts.i18n, TEXT.sync);
+        this.fixedText.push({ el: syncHeading, text: TEXT.sync });
         syncCol.appendChild(syncHeading);
         this.syncEl = doc.createElement('div');
         this.syncEl.className = 'vela-lp-sync';
@@ -300,6 +321,7 @@ export class LayoutPicker {
         this.exit?.cancel();
         this.exit = null;
         this.hover = null;
+        this.relabel();
         this.refresh();
         this.layer.style.display = '';
         this.position();
@@ -341,6 +363,17 @@ export class LayoutPicker {
         this.layer.remove();
     }
 
+    /** Fixed text and square names in the current language. */
+    relabel(): void {
+        const i18n = this.opts.i18n;
+        for (const { el, text } of this.fixedText) el.textContent = textOf(i18n, text);
+        this.infoTip.setContent(() => this.tipNode());
+        for (const sq of this.squares) {
+            const { r, c } = this.squarePos(sq);
+            sq.setAttribute('aria-label', textOf(i18n, TEXT.gridSize, { cols: c + 1, rows: r + 1 }));
+        }
+    }
+
     // ── internals ──
     private squareAt(e: PointerEvent): HTMLButtonElement | null {
         const sq = (e.target as Element | null)?.closest?.('.vela-lp-sq');
@@ -355,7 +388,7 @@ export class LayoutPicker {
     private tipNode(): HTMLElement {
         const tip = this.doc.createElement('div');
         tip.className = 'vela-lp-tip';
-        tip.textContent = 'Click a square to apply that columns × rows layout.';
+        tip.textContent = textOf(this.opts.i18n, TEXT.gridHint);
         return tip;
     }
 

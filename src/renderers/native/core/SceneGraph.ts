@@ -4,6 +4,7 @@ import type { VolumeLayerData, VpvrLayerData } from '../../../core/model/volume-
 import type { PaneKind } from '../../../core/model/scene';
 import type { IndicatorModel, PaneAxisBand } from '../../../core/model/indicator';
 import type { PriceStyle } from '../../../core/options';
+import type { ResolvedFormatters } from '../../../core/format/types';
 import type { PriceScale, PaneBounds } from './CoordinateSystem';
 import { type CandlePaintOverride, type ChartStyle, type CrosshairOverride, defaultChartStyle } from './chartConfig';
 import { defaultTradeMarkersState, type TradeMarkersState } from '../../shared/trade-markers';
@@ -179,6 +180,9 @@ export class SceneGraph {
     percentBaseline = 0;
     /** IANA time zone for the time axis + crosshair/data-window stamps (`'UTC'` default). */
     timezone = 'UTC';
+    /** The chart's formatters (`chart.i18n.format`) for axis labels, chips and readouts;
+     *  undefined = the built-in English formatting (a renderer driven without a chart). */
+    format: ResolvedFormatters | undefined = undefined;
     /** Draw the background gridlines (price + time). Master toggle (`gridlines`
      *  feature); per-axis visibility + colors live in `style.gridVert`/`gridHorz`. */
     showGrid = true;
@@ -369,9 +373,12 @@ export class SceneGraph {
         this.seriesZ.set(id, z);
     }
 
-    /** Snapshot of the current ordering for a UI/read API: `{ id, z }` sorted by z. */
+    /** Snapshot of the current ordering for a UI/read API: `{ id, z }` back to front, in the
+     *  order the indicators paint — on a shared key, mount order (see `orderedIndicatorsForPane`). */
     indicatorZOrder(): Array<{ id: string; z: number }> {
-        return [...this.seriesZ.entries()].map(([id, z]) => ({ id, z })).sort((a, b) => a.z - b.z);
+        const mounted = new Map([...this.indicators.keys()].map((id, i) => [id, i]));
+        const at = (id: string): number => mounted.get(id) ?? Number.MAX_SAFE_INTEGER;
+        return [...this.seriesZ.entries()].map(([id, z]) => ({ id, z })).sort((a, b) => a.z - b.z || at(a.id) - at(b.id));
     }
 
     /** The pane's series z keys (each indicator, plus the candles on the price pane), sorted
@@ -405,16 +412,19 @@ export class SceneGraph {
         return min;
     }
 
-    ensurePane(id: string, kind: PaneKind, order: number, heightWeight: number): PaneNode {
+    /** Create the pane, or update an existing one in place. Without `heightWeight` an existing
+     *  pane keeps its weight (a user resize survives other indicators mounting onto it) and a
+     *  new one gets the default: 3 for the price pane, 1 for a study pane. */
+    ensurePane(id: string, kind: PaneKind, order: number, heightWeight?: number): PaneNode {
         this.orderedCache = null; // order/membership may change
         const existing = this.panes.get(id);
         if (existing) {
             existing.order = order;
-            existing.heightWeight = heightWeight;
+            if (heightWeight !== undefined) existing.heightWeight = heightWeight;
             existing.kind = kind;
             return existing;
         }
-        const pane: PaneNode = { id, kind, order, heightWeight, bounds: { top: 0, height: 0 }, scale: { min: 0, max: 1 }, scaleTarget: { min: 0, max: 1 }, initialized: false, manualScale: null, collapsed: false, percentBaseline: 0 };
+        const pane: PaneNode = { id, kind, order, heightWeight: heightWeight ?? (kind === 'price' ? 3 : 1), bounds: { top: 0, height: 0 }, scale: { min: 0, max: 1 }, scaleTarget: { min: 0, max: 1 }, initialized: false, manualScale: null, collapsed: false, percentBaseline: 0 };
         this.panes.set(id, pane);
         return pane;
     }

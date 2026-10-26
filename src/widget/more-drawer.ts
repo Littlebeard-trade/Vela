@@ -5,10 +5,25 @@
 // layout and alerts open as IN-DRAWER sub-views with a back button — a drawer inside a
 // drawer would stack sheets. Time zone lives on a long-press of the time axis (see
 // `timezone-drawer.ts`), not here.
+import { msg } from '../core/i18n/message';
+import { eventTimeText, textOf } from '../core/i18n/text';
+import type { MessageArgs, MessageLike, Translator } from '../core/i18n/types';
 import { Drawer } from '../ui/components/drawer';
 import { iconEl } from '../ui/icons';
 import { injectStyles } from '../ui/styles';
-import { layoutGridCanvas, paintLayoutGrid } from './layout-picker';
+import { layoutGridCanvas, layoutGridLabel, paintLayoutGrid } from './layout-picker';
+
+const TEXT = {
+    chartType: msg('widget.moreDrawer.chartType', 'Chart type'),
+    layout: msg('widget.moreDrawer.layout', 'Layout'),
+    alerts: msg('widget.moreDrawer.alerts', 'Alerts'),
+    undo: msg('widget.moreDrawer.undo', 'Undo'),
+    redo: msg('widget.moreDrawer.redo', 'Redo'),
+    screenshot: msg('widget.moreDrawer.screenshot', 'Screenshot'),
+    sync: msg('widget.moreDrawer.sync', 'Sync'),
+    noAlerts: msg('widget.moreDrawer.noAlerts', 'No alerts yet.'),
+    alert: msg('widget.moreDrawer.alert', '{title}: {message}'),
+};
 
 const STYLE_ID = 'vela-widget-more-drawer';
 const CSS = `
@@ -130,6 +145,8 @@ export interface MoreDrawerOptions {
         glyph?: () => string;
     };
     onOpenChange?: (open: boolean) => void;
+    /** The shell's translator. Absent: English. */
+    i18n?: Translator;
 }
 
 type MoreView = 'main' | 'style' | 'layout' | 'alerts';
@@ -157,6 +174,10 @@ export class MoreDrawer {
         this.drawer.destroy();
     }
 
+    private t(text: MessageLike, values?: MessageArgs): string {
+        return textOf(this.opts.i18n, text, values);
+    }
+
     private show(view: MoreView): void {
         this.view = view;
         this.render();
@@ -170,7 +191,7 @@ export class MoreDrawer {
             const back = doc.createElement('button');
             back.className = 'vela-md-back';
             back.appendChild(iconEl('chevron-left', doc));
-            back.appendChild(doc.createTextNode(this.view === 'style' ? 'Chart type' : this.view === 'layout' ? 'Layout' : 'Alerts'));
+            back.appendChild(doc.createTextNode(this.t(this.view === 'style' ? TEXT.chartType : this.view === 'layout' ? TEXT.layout : TEXT.alerts)));
             back.addEventListener('click', () => this.show('main'));
             this.drawer.body.appendChild(back);
         }
@@ -208,31 +229,31 @@ export class MoreDrawer {
     private renderMain(doc: Document): void {
         const actions = doc.createElement('div');
         actions.className = 'vela-md-actions';
-        const action = (icon: string, label: string, enabled: boolean, run: () => void): void => {
+        const action = (icon: string, label: MessageLike, enabled: boolean, run: () => void): void => {
             const b = doc.createElement('button');
             b.className = 'vela-md-action';
             b.disabled = !enabled;
             b.appendChild(iconEl(icon, doc));
-            b.appendChild(doc.createTextNode(label));
+            b.appendChild(doc.createTextNode(this.t(label)));
             b.addEventListener('click', () => {
                 run();
                 this.drawer.hide();
             });
             actions.appendChild(b);
         };
-        if (this.opts.onUndo) action('undo', 'Undo', this.opts.canUndo(), this.opts.onUndo);
-        if (this.opts.onRedo) action('redo', 'Redo', this.opts.canRedo(), this.opts.onRedo);
-        if (this.opts.onScreenshot) action('camera', 'Screenshot', true, this.opts.onScreenshot);
+        if (this.opts.onUndo) action('undo', TEXT.undo, this.opts.canUndo(), this.opts.onUndo);
+        if (this.opts.onRedo) action('redo', TEXT.redo, this.opts.canRedo(), this.opts.onRedo);
+        if (this.opts.onScreenshot) action('camera', TEXT.screenshot, true, this.opts.onScreenshot);
         if (actions.childElementCount > 0) this.drawer.body.appendChild(actions);
 
         const list = doc.createElement('div');
         list.className = 'vela-md-list';
         const current = this.opts.priceStyles().find((s) => s.id === this.opts.priceStyle());
-        list.appendChild(this.row(doc, 'Chart type', { icon: 'style-line', value: current?.label, chevron: true, onClick: () => this.show('style') }));
+        list.appendChild(this.row(doc, this.t(TEXT.chartType), { icon: 'style-line', value: current?.label, chevron: true, onClick: () => this.show('style') }));
         if (this.opts.layout) {
             const shape = this.opts.layout.shape();
-            const value = shape ? `${shape.cols} × ${shape.rows}` : this.opts.layout.presets().find((p) => p.checked)?.label;
-            list.appendChild(this.row(doc, 'Layout', { icon: 'layout', glyph: this.opts.layout.glyph?.(), value, chevron: true, onClick: () => this.show('layout') }));
+            const value = shape ? layoutGridLabel(shape.cols, shape.rows, this.opts.i18n) : this.opts.layout.presets().find((p) => p.checked)?.label;
+            list.appendChild(this.row(doc, this.t(TEXT.layout), { icon: 'layout', glyph: this.opts.layout.glyph?.(), value, chevron: true, onClick: () => this.show('layout') }));
         }
         for (const act of this.opts.primaryActions?.() ?? []) list.appendChild(this.actionRow(doc, act));
         for (const panel of this.opts.panels()) {
@@ -248,7 +269,7 @@ export class MoreDrawer {
         }
         if (this.opts.alerts) {
             const alertCount = this.opts.alerts().length;
-            list.appendChild(this.row(doc, 'Alerts', { icon: 'bell', value: alertCount > 0 ? String(alertCount) : undefined, chevron: true, onClick: () => this.show('alerts') }));
+            list.appendChild(this.row(doc, this.t(TEXT.alerts), { icon: 'bell', value: alertCount > 0 ? String(alertCount) : undefined, chevron: true, onClick: () => this.show('alerts') }));
         }
         for (const act of this.opts.actions()) list.appendChild(this.actionRow(doc, act));
         this.drawer.body.appendChild(list);
@@ -293,7 +314,7 @@ export class MoreDrawer {
         // rectangle is lit, a tap applies that grid immediately (no hover preview).
         const wrap = doc.createElement('div');
         wrap.className = 'vela-md-gridwrap';
-        const { el: grid, squares } = layoutGridCanvas(doc);
+        const { el: grid, squares } = layoutGridCanvas(doc, this.opts.i18n);
         paintLayoutGrid(squares, layout.shape());
         grid.addEventListener('click', (e) => {
             const sq = (e.target as Element | null)?.closest?.('.vela-lp-sq');
@@ -318,7 +339,7 @@ export class MoreDrawer {
         if (syncs.length > 0) {
             const heading = doc.createElement('div');
             heading.className = 'vela-md-section';
-            heading.textContent = 'Sync';
+            heading.textContent = this.t(TEXT.sync);
             list.appendChild(heading);
             for (const s of syncs) {
                 list.appendChild(
@@ -340,14 +361,14 @@ export class MoreDrawer {
         if (alerts.length === 0) {
             const empty = doc.createElement('div');
             empty.className = 'vela-md-empty';
-            empty.textContent = 'No alerts yet.';
+            empty.textContent = this.t(TEXT.noAlerts);
             this.drawer.body.appendChild(empty);
             return;
         }
         const list = doc.createElement('div');
         list.className = 'vela-md-list';
         for (const a of alerts) {
-            list.appendChild(this.row(doc, `${a.title}: ${a.message}`, { value: new Date(a.time).toLocaleTimeString(), onClick: () => undefined }));
+            list.appendChild(this.row(doc, this.t(TEXT.alert, { title: a.title, message: a.message }), { value: eventTimeText(a.time, this.opts.i18n), onClick: () => undefined }));
         }
         this.drawer.body.appendChild(list);
     }

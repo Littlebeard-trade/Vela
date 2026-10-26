@@ -41,12 +41,12 @@ Available on every renderer:
 | Feature | Type | Default | Notes |
 |---|---|---|---|
 | `glow` | number (0 – ~0.7) | `0` | Neon glow/bloom on line series. **WebGL2 only** — the canvas2d backend stores the value but draws no glow. |
-| `priceStyle` | `'candles' \| 'bars' \| 'line' \| 'area' \| 'baseline'` | `'candles'` | How the base price series is drawn. (Heikin Ashi is not yet available.) |
+| `priceStyle` | `'candles' \| 'bars' \| 'line' \| 'area' \| 'baseline' \| 'heikinashi'`, or a registered chart-type id | `'candles'` | How the base price series is drawn. `'heikinashi'` draws Heikin Ashi candles, and indicators compute on the same smoothed values the chart shows. For hollow candles, see [Hollow candles](#hollow-candles). |
 | `priceBaseline` | number \| `null` | `null` | Reference price for `priceStyle: 'baseline'`. `null` derives it from the config's `baseline.baselineLevel` (a percent of the visible pane range). |
 | `baselinePrice` | number (read-only) | — | The RESOLVED baseline reference price the paint splits on: `priceBaseline` when set, else the level% of the price pane's current range. For host chrome that colors by baseline position (e.g. a status line's value ink). Writes are ignored. |
-| `candleZOrder` | number | `0` | Draw-order key of the price candles relative to overlay indicators. Indicators default to z ≥ 1, so candles sit behind all overlays by default. |
+| `candleZOrder` | number | `0` | Draw-order key of the price candles relative to overlay indicators. A new indicator mounts at the bottom of the stack, so the candles sit in front of every overlay until it is restacked: from its legend row (the **Move to** menu or a right-click → **Bring in front of price**), the object tree, or `seriesOrder`. |
 | `seriesOrder` | `{ id, to: 'front' \| 'back' }` or `{ id, z }` | — | Reorder one indicator's series layer — move it to front/back, or set an explicit z key. |
-| `highlights` | `HighlightArea[]` | `[]` | Shaded vertical time bands (session highlighting, e.g. weekends or pre/regular/post), drawn behind grid + data. Malformed entries are dropped; bands are sorted by start time. |
+| `highlights` | `HighlightArea[]` | `[]` | Shaded vertical time bands, drawn behind grid + data: `{ from, to, color }` with `from` inclusive and `to` exclusive, in epoch-ms. Use them for session highlighting (weekends, pre/regular/post) or to mark a bar or range the user picked — see [Letting the user pick a bar](./api-reference.md#letting-the-user-pick-a-bar-or-a-range). Malformed entries are dropped; bands are sorted by start time. |
 | `sessionZones` | `{ pre, post, extended }` \| `null` | `null` | Session time bands (`[start, end)` epoch-ms pairs per phase), shaded behind grid + data with the config's `sessions.premarketColor` / `sessions.postmarketColor` / `sessions.extendedColor`. Markets with a same-day pre/post split populate `pre`/`post`; markets whose extended session wraps midnight (an evening open rolling into the next day) populate the single `extended` phase instead. A host derives them from its market calendar (the widget does this automatically on markets with sessions); `null` means the market has no session structure. |
 | `tradeMarkers` | `{ visible?, labels?, qty?, colors? }` | everything on | Strategy trade markers (the order-fill arrows a strategy indicator emits via `IndicatorModel.trades`). Partial merge: `visible` hides the units, `labels` the order-id line, `qty` the signed-quantity line; `colors` overrides `{ long, short, exit }` (defaults `#2962ff` / `#f23645` / `#d500f9`). Malformed fields are dropped. |
 
@@ -133,6 +133,21 @@ follows a synced crosshair's veil too.
 > moved indicator its **own price-scale column** to the
 > right of the pane's scale, autoscaled independently. This is a **native-renderer** capability
 > (`capabilities.paneManagement`); on a renderer that lacks it the pane operations warn and no-op.
+> Host code drives the same operations through
+> [`chart.panes`](./api-reference.md#chartpanes--the-pane-control-surface), so a custom pane
+> toolbar stays in step with the built-in buttons.
+
+> **Stacking from the legend.** An overlay indicator's **Move to** menu, and its legend row's
+> right-click menu, step it through the price pane's draw order one layer at a time: **Bring in
+> front of price** or **Bring in front of** *the indicator directly in front of it*, and **Send
+> behind price** or **Send behind** *the indicator directly behind it*. Only the steps that have
+> a layer to pass show. One step moves it just past that layer and leaves every other layer where
+> it was. Each pane's legend lists its indicators in that order, front-most on top, like the
+> object tree, and the steps walk the same order, so the three always agree. The new
+> order is part of the renderer config, so it is saved with the chart and reported through
+> `chart.renderer.onConfigChanged`. Volume and the volume profile take part in the order like any
+> other overlay, but paint on canvases of their own over the candles and indicators wherever they
+> sit in it.
 
 > **The drawing toolbar** is also in-chart UI, but it lives on its own facade — `chart.drawings`,
 > not `chart.renderer` — and is **shown by default**. It adds its own keyboard shortcuts
@@ -193,8 +208,24 @@ chart.renderer.applyConfig({ candles: { upColor: '#26a69a' } }); // partial patc
 The covered cosmetics include layout (background, text, font), grid colors/visibility,
 crosshair (color/width/style/opacity/label), price scale (mode, log, border, labels,
 current-price line, last-price animation on/off), the animation switches (zoom, pan
-momentum, price-scale glide, first-load reveal), time-scale timezone, candle border/wick,
-and per-style colors for bars / line / area / baseline.
+momentum, price-scale glide, first-load reveal), time-scale timezone, candle body, border
+and wick, and per-style colors for bars / line / area / baseline.
+
+### Hollow candles
+
+Hollow candles are a `candles` setting, not a separate price style: turn the body off and
+the border on. Both directions then draw as outlines in their up and down colors, with the
+wicks stopping at the body edge.
+
+```js
+chart.renderer.applyConfig({
+  candles: { bodyVisible: false, borderVisible: true },
+});
+```
+
+`borderUpColor` and `borderDownColor` set the outline colors; left out, they follow the
+candle colors. Keep `upColor` and `downColor` opaque: the legend values and the last-price
+tag take their color from them, so a transparent `upColor` hides those on rising bars.
 
 ## Custom renderers
 

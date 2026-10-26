@@ -121,9 +121,9 @@ function setup(): { host: ReturnType<typeof fakeHost>; fake: ReturnType<typeof f
 describe('ChartContextMenu — the pointer on the action context', () => {
     it('hands `when` and `run` the crosshair captured when the menu opened', () => {
         const { host, fake, seen } = setup();
-        fake.move({ time: 1_700_000_000_000, price: 42_123.5, paneKind: 'price' });
+        fake.move({ time: 1_700_000_000_000, price: 42_123.5, paneKind: 'price', paneId: 'price' });
         host.fire('contextmenu', { clientX: 300, clientY: 200 });
-        const expected = { price: 42_123.5, time: 1_700_000_000_000, paneKind: 'price' };
+        const expected = { price: 42_123.5, time: 1_700_000_000_000, paneKind: 'price', paneId: 'price' };
         expect(seen.when).toEqual([expected]);
         // The pointer travels through the menu (and off the chart) before the row is picked.
         fake.move({ time: 1_700_000_060_000, price: 41_000, paneKind: 'price' });
@@ -134,17 +134,17 @@ describe('ChartContextMenu — the pointer on the action context', () => {
         expect(seen.when).toEqual([expected, expected]);
     });
 
-    it('reports a study pane by kind, and nulls off the plot', () => {
+    it('reports a study pane by kind and id, and nulls off the plot', () => {
         const { host, fake, seen } = setup();
-        fake.move({ time: 5, price: 61.2, paneKind: 'study' });
+        fake.move({ time: 5, price: 61.2, paneKind: 'study', paneId: 'pane-rsi' });
         host.fire('contextmenu', { clientX: 300, clientY: 500 });
         menus[0]!.select('action:test.copy-price');
-        expect(seen.run).toEqual([{ price: 61.2, time: 5, paneKind: 'study' }]);
+        expect(seen.run).toEqual([{ price: 61.2, time: 5, paneKind: 'study', paneId: 'pane-rsi' }]);
 
-        fake.move({ time: null, price: null, paneKind: null });
+        fake.move({ time: null, price: null, paneKind: null, paneId: null });
         host.fire('contextmenu', { clientX: 300, clientY: 200 });
         menus[0]!.select('action:test.copy-price');
-        expect(seen.run[1]).toEqual({ price: null, time: null, paneKind: null });
+        expect(seen.run[1]).toEqual({ price: null, time: null, paneKind: null, paneId: null });
     });
 
     it('keeps the context LIVE: the pointer is added without freezing its getters', () => {
@@ -169,7 +169,8 @@ describe('ChartContextMenu — the pointer on the action context', () => {
         fake.move({ time: 1, price: 1, paneKind: 'price' });
         next.move({ time: 2, price: 99, paneKind: 'price' });
         host.fire('contextmenu', { clientX: 300, clientY: 200 });
-        expect(seen.when).toEqual([{ price: 99, time: 2, paneKind: 'price' }]);
+        // A renderer that reports no pane id leaves it null.
+        expect(seen.when).toEqual([{ price: 99, time: 2, paneKind: 'price', paneId: null }]);
         menu.destroy();
         expect(next.subscribers()).toBe(0);
     });

@@ -37,6 +37,8 @@ export interface InputControllerDeps {
     beginPaneResize(y: number): void;
     /** Resize the grabbed panes by the TOTAL pixel drag (down ⇒ grow the upper pane). */
     paneResizeBy(dyTotal: number): void;
+    /** The separator was released. */
+    endPaneResize?(): void;
     /** Double-click a sub-pane separator → restore the two adjacent panes to an even split. */
     resetPaneSize(y: number): void;
     /** Double-click the time axis → fit the view to content (same as keyboard `0`). */
@@ -640,6 +642,8 @@ export class InputController {
         const tapRelease = this.dragging && !this.moved && (!wasTouch || Math.hypot(x - this.startX, y - this.startY) <= TOUCH_TAP_SLOP);
         if (this.dragging && this.region === 'drawing') {
             this.deps.drawingsPointerUp?.(x, y, this.snapMode(e));
+        } else if (this.dragging && this.region === 'separator') {
+            this.deps.endPaneResize?.();
         } else if (tapRelease && this.region === 'data') {
             this.deps.onClick(x, y);
         } else if (this.dragging && this.region === 'data' && wasTouch) {
@@ -693,6 +697,8 @@ export class InputController {
         this.cancelLongPress();
         if (!this.dragging) return;
         if (this.region === 'drawing' && !Number.isNaN(this.cursorX)) this.deps.drawingsPointerUp?.(this.cursorX, this.cursorY, this.snapMode(e));
+        // A cancelled separator drag keeps the sizes it reached, so it still reports them.
+        if (this.region === 'separator') this.deps.endPaneResize?.();
         if (this.region === 'crosshair' || e.pointerType === 'touch') this.deps.onPointerMove(null, null);
         this.endGesture(e);
     };

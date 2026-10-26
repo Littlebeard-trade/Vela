@@ -14,6 +14,51 @@
 //
 // UI contributions (style-picker entries, settings sections, shortcuts) arrive with the
 // widget SDK — contributions are DATA descriptors, never DOM.
+
+// LOCALIZATION: `msg()` declares a translatable message (stable id + English text), a
+// `LocalePack` carries one language's messages and `registerLocale` adds it (a call, never
+// an import side effect). Every chart, workspace and widget context carries a `Translator`
+// (`chart.i18n`, `ctx.i18n`, renderer-layer `args.i18n`) that resolves messages and
+// formats numbers and dates for the chart's locale.
+export {
+    msg,
+    withValues,
+    registerLocale,
+    registeredLocales,
+    createTranslator,
+    type MessageDescriptor,
+    type MessageLike,
+    type MessageValues,
+    type MessageArgs,
+    type LocalePack,
+    type VelaMessageCatalog,
+    type VelaMessageId,
+    type TextDirection,
+    type LocalizationOptions,
+    type Translator,
+    type LocaleChangedEvent,
+} from './core/i18n';
+export type {
+    FormatSurface,
+    FormatContext,
+    TimeTickUnit,
+    PriceFormatOptions,
+    PercentFormatOptions,
+    CompactFormatOptions,
+    TimeTickFormatOptions,
+    TimeStampFormatOptions,
+    DurationFormatOptions,
+    ClockFormatOptions,
+    ClockFormatContext,
+    PriceFormatContext,
+    PercentFormatContext,
+    CompactFormatContext,
+    TimeTickFormatContext,
+    TimeStampFormatContext,
+    DurationFormatContext,
+    ResolvedFormatters,
+    VelaFormatters,
+} from './core/format';
 export {
     registerChartType,
     unregisterChartType,

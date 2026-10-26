@@ -2,6 +2,7 @@
 // (price axis / time axis / chart body) and current renderer feature states; the menu
 // itself is the kit Menu anchored at the pointer.
 import type { Vela } from '../Vela';
+import { textOf } from '../core/i18n/text';
 import { Menu, type MenuItemDescriptor } from '../ui/components/menu';
 import { widgetActions, type ContextMenuPointer, type WidgetContext } from './contributions';
 import {
@@ -25,7 +26,7 @@ import { resolveTimezone } from './timezones';
 const PRICE_AXIS_W = 60;
 const TIME_AXIS_H = 26;
 
-const OFF_PLOT: ContextMenuPointer = { price: null, time: null, paneKind: null };
+const OFF_PLOT: ContextMenuPointer = { price: null, time: null, paneKind: null, paneId: null };
 
 export interface ContextMenuCallbacks {
     /** Reset the view (all history, autoscale back on). */
@@ -83,7 +84,7 @@ export class ChartContextMenu {
         this.chart = chart;
         this.crosshair = OFF_PLOT;
         this.offCrosshair = chart.renderer.onCrosshairMove((e) => {
-            this.crosshair = { price: e.price, time: e.time, paneKind: e.paneKind ?? null };
+            this.crosshair = { price: e.price, time: e.time, paneKind: e.paneKind ?? null, paneId: e.paneId ?? null };
         });
     }
 
@@ -125,7 +126,7 @@ export class ChartContextMenu {
 
     private contributed(zone: Zone): ContributedRow[] {
         return widgetActions(`context:${zone}`, this.context()).map((a) => ({
-            item: { id: `action:${a.id}`, label: a.label, icon: a.icon },
+            item: { id: `action:${a.id}`, label: textOf(this.chart?.i18n, a.label), icon: a.icon },
             order: a.order,
         }));
     }
@@ -135,6 +136,7 @@ export class ChartContextMenu {
     }
 
     private builtinItems(zone: Zone): MenuItemDescriptor[] {
+        const chart = this.chart;
         if (zone === 'price-axis') {
             const pane = this.lastPane;
             return priceAxisItems({
@@ -145,16 +147,18 @@ export class ChartContextMenu {
                 priceLabel: this.flag('priceLabel'),
                 countdown: this.flag('countdown'),
                 priceLine: this.flag('currentPriceLine'),
-            });
+            }, this.chart?.i18n);
         }
         if (zone === 'time-axis') {
-            return timeAxisItems(this.cbs.timezone?.() ?? String(this.chart?.renderer.get('timezone') ?? 'Etc/UTC'));
+            return timeAxisItems(this.cbs.timezone?.() ?? String(this.chart?.renderer.get('timezone') ?? 'Etc/UTC'), chart?.i18n);
         }
-        const chart = this.chart;
-        return bodyItems({
-            drawings: chart?.drawings.supported ? chart.drawings.all().length : 0,
-            indicators: chart?.indicators().length ?? 0,
-        });
+        return bodyItems(
+            {
+                drawings: chart?.drawings.supported ? chart.drawings.all().length : 0,
+                indicators: chart?.indicators().length ?? 0,
+            },
+            chart?.i18n,
+        );
     }
 
     private run(id: string): void {

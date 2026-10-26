@@ -279,8 +279,10 @@ class DrawingEngine implements ScriptingEngine {
 }
 
 /** A probe native-indicator type: records each instance's start context + lifecycle. */
-function probeNative(): { descriptor: NativeIndicatorDescriptor; instances: Array<{ symbol?: string; started: number; stopped: number; resumed: number; suspended: number }> } {
-    const instances: Array<{ symbol?: string; started: number; stopped: number; resumed: number; suspended: number }> = [];
+type ProbeInstance = { symbol?: string; ctx?: NativeIndicatorContext; started: number; stopped: number; resumed: number; suspended: number };
+
+function probeNative(): { descriptor: NativeIndicatorDescriptor; instances: ProbeInstance[] } {
+    const instances: ProbeInstance[] = [];
     const descriptor: NativeIndicatorDescriptor = {
         type: 'probe',
         title: 'Probe',
@@ -289,10 +291,10 @@ function probeNative(): { descriptor: NativeIndicatorDescriptor; instances: Arra
         inputsSchema: () => [],
         defaultInputs: () => ({}),
         create: () => {
-            const rec = { symbol: undefined as string | undefined, started: 0, stopped: 0, resumed: 0, suspended: 0 };
+            const rec: ProbeInstance = { started: 0, stopped: 0, resumed: 0, suspended: 0 };
             instances.push(rec);
             return {
-                start(ctx: NativeIndicatorContext) { rec.started += 1; rec.symbol = ctx.symbol; ctx.emit({}); },
+                start(ctx: NativeIndicatorContext) { rec.started += 1; rec.symbol = ctx.symbol; rec.ctx = ctx; ctx.emit({}); },
                 onBars() {},
                 onViewport() {},
                 setInputs() {},
@@ -661,6 +663,84 @@ describe('setMarket — in-place market switch', () => {
         await flush();
         // The post-load rebuild starts a fresh engine, which pushes the NEW market's data.
         expect(renderer.nativePushes.filter(([t, d]) => t === 'probe-style' && d !== undefined).length).toBeGreaterThan(0);
+    });
+
+    it('work the old type engine left in flight never reaches the scene — neither in the gap nor after the reload', async () => {
+        const hosts: SeriesDataEngineHost[] = [];
+        registerChartType({
+            id: 'probe-style',
+            dataEngine: () => ({
+                start: (host) => { hosts.push(host); host.pushData({ cells: host.symbol }); },
+                suspend: () => {},
+                resume: () => {},
+                stop: () => {},
+            }),
+        });
+        const feed = new SwitchFeed();
+        feed.gatedLoads.add('SLOW');
+        const renderer = new FakeRenderer();
+        renderer.priceStyleFeature = 'probe-style';
+        const chart = make({ symbol: 'AAA', timeframe: '60', volume: false }, { renderer, engines: [], dataFeed: feed });
+        await chart.ready();
+        await flush();
+        const old = hosts[0]!;
+
+        const done = chart.setMarket({ symbol: 'SLOW' });
+        renderer.nativePushes.length = 0;
+        // A fetch the old engine started before the switch resolves while the new bars load:
+        // with no bars on the axis, every time-keyed cell it pushes maps to the same slot.
+        old.pushData({ cells: 'late' });
+        old.pushPending([[1, 2]]);
+        expect(renderer.nativePushes).toEqual([]);
+
+        feed.release();
+        await done;
+        await flush();
+        expect(renderer.nativePushes).toContainEqual(['probe-style', { cells: 'SLOW' }]); // the rebuilt engine paints
+        renderer.nativePushes.length = 0;
+        // Landing after the rebuild, the stopped engine's push would overwrite the new market's cells.
+        old.pushData({ cells: 'later' });
+        old.pushPending([[3, 4]]);
+        expect(renderer.nativePushes).toEqual([]);
+    });
+
+    it('an identity switch stops native indicators and blanks their layer channels; the old context goes dead', async () => {
+        const { descriptor, instances } = probeNative();
+        registerNativeIndicator(descriptor);
+        const feed = new SwitchFeed();
+        feed.gatedLoads.add('SLOW');
+        const renderer = new FakeRenderer();
+        const chart = make({ symbol: 'AAA', timeframe: '60', volume: false }, { renderer, engines: [], dataFeed: feed });
+        chart.addNativeIndicator('probe');
+        await chart.ready();
+        await flush();
+        const oldCtx = instances[0]!.ctx!;
+        oldCtx.pushData({ cells: 'AAA' });
+        expect(renderer.nativePushes).toContainEqual(['probe', { cells: 'AAA' }]);
+
+        const done = chart.setMarket({ symbol: 'SLOW' });
+        // Synchronously at the switch: the old instance is released and its channel blanked —
+        // its time-keyed payload would otherwise collapse onto the empty axis for the whole load.
+        expect(instances[0]!.stopped).toBe(1);
+        expect(renderer.nativePushes[renderer.nativePushes.length - 1]).toEqual(['probe', undefined]);
+        renderer.nativePushes.length = 0;
+        oldCtx.pushData({ cells: 'late' }); // a fetch it left in flight resolves mid-load
+        expect(renderer.nativePushes).toEqual([]);
+
+        feed.release();
+        await done;
+        await flush();
+        expect(instances).toHaveLength(2);
+        expect(instances[0]!.stopped).toBe(1); // released once — the post-load restart does not stop it again
+        expect(instances[1]!.symbol).toBe('SLOW');
+        const mounts = renderer.mountedModels.length;
+        const updates = renderer.updates.length;
+        oldCtx.pushData({ cells: 'later' });
+        oldCtx.emit({});
+        instances[1]!.ctx!.pushData({ cells: 'SLOW' });
+        expect(renderer.nativePushes).toEqual([['probe', { cells: 'SLOW' }]]);
+        expect(renderer.mountedModels.length).toBe(mounts);
+        expect(renderer.updates.length).toBe(updates);
     });
 
     it('a chart CONSTRUCTED in a plugin style starts its data engine only after the first load', async () => {

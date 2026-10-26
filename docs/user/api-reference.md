@@ -41,11 +41,14 @@ Constructing a chart renders candles immediately. Scripting engines are opt-in.
 | `ready()` | Returns a promise that resolves once the chart is painted and interactive. On a ranged feed the first paint is a small recent head (~200 bars) and the rest of the history keeps backfilling **behind** this — await `historyComplete()` for the full depth. |
 | `historyComplete()` | Returns a promise that resolves once the **current load's** full requested history has loaded — immediately for small/offline charts, after the background backfill for deep ones. **Per-load**: each `setMarket` re-arms the cycle (the superseded load's promise resolves rather than hanging), so call it again after a switch for the new market's depth. Never rejects: on destroy or a failed backfill it resolves with whatever depth loaded. |
 | `on(event, handler)` | Subscribe to a chart-level event. Returns an unsubscribe function. |
-| `getVisibleRange()` | The current visible time range (`{ from, to }` in epoch-ms), or `null` before data loads. |
-| `setVisibleRange(range)` | Set the visible time range explicitly (epoch-ms). Returns the chart for chaining. |
+| `getVisibleRange()` | The current visible time range (`{ from, to }` in epoch-ms), or `null` before data loads. Both ends are **real bar times**: the empty space right of the newest bar is not part of the range, so `to` stops at the newest bar (scripts compare `time == chart.right_visible_bar_time` exactly). `null` as well when the view is scrolled entirely into that empty space. To keep room ahead of the newest bar, store your own end time and hand it to `setVisibleRange`. |
+| `setVisibleRange(range)` | Set the visible time range explicitly (epoch-ms). `to` may lie past the newest bar: the gap becomes empty space on the right, up to the same pan limit as dragging (a few bars must stay in view). Returns the chart for chaining. |
 | `panBy(fraction)` | Pan by a fraction of the visible width — positive ⇒ toward the latest bars, negative ⇒ into history. Behaves exactly like dragging the chart: constant zoom, the same pan limits (forward stops at the newest candle plus the bounded empty space), eased on renderers that animate pans; repeated calls stack into one continuous scroll. The widget's `Ctrl/Cmd + ←/→` keys use it. Returns the chart for chaining. |
 | `setVisibleRangePreset(preset)` | Frame a named date range over the loaded bars: `'1D'`, `'1W'`, `'1M'`, `'3M'`, `'6M'`, `'1Y'`, `'5Y'`, `'YTD'`, or `'ALL'`. A preset deeper than the loaded history just frames everything (it doesn't fetch more bars — the widget's range chips do that for you). Returns the chart for chaining. |
 | `setTheme(theme)` | Swap the app theme at runtime — `'dark'`, `'light'`, or a full theme object (same shape as the `theme` option). Re-skins the chart surface, axes, legends and in-chart chrome live (no indicator re-run) and emits `theme:changed` with the resolved theme so surrounding host chrome can follow. Candle colors are shared across the built-in themes, so a swap never recolors the series. The same switch is available to users in chart settings → Canvas → Theme. Returns the chart for chaining. |
+| `setLocale(next)` | Change the chart's language, direction or formatting at runtime — a locale tag (`'de'`) or any [localization option](./options.md#localization-options). Fields you pass replace their current value (an explicit `undefined` restores the default); the others are kept. The chart re-renders its axes, chips and readouts in place (no indicator re-run) and emits `locale:changed`. Register the locale's pack (`registerLocale`) first for translated text. Returns the chart for chaining. See [Localization](./localization.md). |
+| `i18n` (getter) | The chart's translator: its resolved `locale`, `direction`, `numberingSystem`, `hourCycle` and `weekStart`; `t(message, values?)`, which returns a plain string unchanged and translates a `msg()` descriptor through the registered packs, falling back to English; and `format`, the chart's formatters (`price`, `percent`, `compact`, `timeTick`, `timeStamp`, `duration`). The same object for the chart's lifetime; it reads the new settings after `setLocale`. |
+| `panes` (getter) | The [pane control surface](#chartpanes--the-pane-control-surface): list the panes with the indicators each holds, and move, merge, collapse or maximize them. |
 | `inspect()` | A renderer-agnostic snapshot of the graphic elements the core has generated (series, fills, drawings, tables, …) — a deterministic check that a feature was produced, independent of which renderer drew it. |
 | `resize()` | Re-measure the container and relayout. Call after the container's size changes. |
 | `destroy()` | Tear down the chart, renderer, engines, and subscriptions — no leaks. |
@@ -100,6 +103,7 @@ What `addIndicator` returns. Usable immediately.
 | `setProps(values)` | Override several declaration properties at once. |
 | `updateCode(source)` | Replace the script and re-run it **in place** — same `id`, legend row, pane placement, visibility and handle. The new source is compiled first; only then is the running script stopped and the new one started. Until the new code's first run lands, any failure — at compile time or at run time — puts the previous code back with its input and prop values, keeps its visuals painting throughout, and reports through `error`. An input or prop the user edited survives where the new script still declares its key; one still at its old declared default takes the new default; the new code computes once, with its final values. Returns a `Promise<{ ok, error }>`: resolved once the new code's first run has landed, right after the compile check for a hidden indicator, at once for an unchanged source, and with `ok: false` after a failure. A call superseded by a later one resolves with that later call's outcome. Never rejects; a native indicator resolves `ok: false`. |
 | `setVisible(visible)` | Hide or show the indicator. Hiding suspends it — its visuals are dropped and its computation stops; showing re-runs it over the current bars. |
+| `moveTo(target)` | Move or merge the indicator into another pane: `'price'`, `{ pane: id }` (an existing pane, from `chart.panes.list()`), or `{ newPane: true }` / `{ newPane: { before?, after? } }` for a pane of its own. Merging into a pane it doesn't own gives it its own scale column, except an overlay moved back onto the price pane, which shares the price scale. The placement sticks through recomputes. Fires `indicator:moved` and `pane:changed`. Warns and no-ops on a renderer without pane management. |
 | `on(event, handler)` | Per-indicator events — `ready`, `error` (`{ error }`), `alert` (`{ id, message, title?, time }`). Returns an unsubscribe function. |
 | `context(select?)` | `Promise` of a **read-only, serializable snapshot** of the engine's execution context — see [below](#capturing-what-a-script-computes). `null` when the engine lacks the capability or nothing ran yet. |
 | `remove()` | Remove this indicator from the chart. |
@@ -247,9 +251,15 @@ Subscribe with `chart.on(event, handler)`; every subscription returns an unsubsc
 | `load:end` | `{ symbol, timeframe, bars }` | The load ended: its first bars painted (`bars` > 0 — on deep histories the quick preview), or it ended with none (`bars` = 0 — a failed fetch, an empty market, or a parked symbol). Exactly one per `load:start`; plugins restore or rebuild their visuals here. |
 | `history:progress` | `{ loaded, target }` | A deep-history backfill chunk landed — `loaded` of `target` bars are on the chart. |
 | `history:complete` | `{ reason, oldestTime, barsLoaded }` | The history load finished. `reason`: `'depth'` (requested count loaded), `'genesis'` (the source has nothing older), or `'aborted'` (a fetch failed — the chart keeps what loaded). Fires exactly once, including for small/offline charts. |
-| `indicator:added` | `{ id }` | An indicator was added. |
+| `data:unresolved` | `{ symbol, providers }` | No registered provider can serve the chart symbol. The load is **parked**, not failed: it resumes by itself once a provider that resolves the symbol registers. `providers` lists the names that were tried. |
+| `indicator:added` | `{ id }` | An indicator was added — once, when it first computes (or at once for one added hidden). Its pane exists by then, so `chart.panes.list()` already lists it. |
 | `indicator:removed` | `{ id }` | An indicator was removed. |
 | `indicator:error` | `{ id, error }` | An indicator failed. |
+| `indicator:inputs` | `{ id }` | An indicator's input or prop values changed — the settings dialog, `setInput(s)`, `setProp(s)`. What state persistence listens to. |
+| `indicator:visibility` | `{ id, visible }` | An indicator was shown or hidden — the legend eye, `handle.setVisible`, or an object tree. |
+| `indicator:moved` | `{ id, paneId }` | An indicator was moved or merged into another pane — `handle.moveTo`, `chart.panes.moveIndicator`, or the legend's **Move to** menu. |
+| `pane:changed` | — | The pane layout changed: a pane created with its indicator or removed with its last one, the order, a collapse or maximize, the pane heights (`chart.panes.setHeightWeight`, or the user releasing a pane separator), or an indicator moving between panes — from `chart.panes` or the in-chart controls alike. Re-read `chart.panes.list()`. |
+| `pane:moved` | `{ paneId, dir }` | A study pane moved one slot `'up'` or `'down'`. Fires alongside `pane:changed`, with enough detail to undo it. |
 | `script:run` | the [`ScriptRun`](#capturing-what-a-script-computes) | A script computed — the first pass over the history, a live tick, a new bar, an input edit, a viewport move, a market switch. Carries the run itself (title, cause, the plots/variables/broker state at the computed bar), so a listener reads it instead of resolving a handle and pulling a snapshot. Forming-bar (`'tick'`) runs are throttled to ~1/s; every other cause fires unconditionally. Never fires for native indicators — they run no script. |
 | `context:changed` | `{ id }` | An indicator's execution context advanced (run finished; throttled to ~1/s while streaming). Re-pull `handle.context()` if you consume it. Fires only for context-capable engines. **Prefer `script:run`**, which delivers the data rather than a signal to go fetch it. |
 | `bar` | the bar (OHLCV) | A live tick — the forming bar updated or a new bar appended. A bar revealed by a [replay](#chartreplay--the-bar-replay-control-surface) fires it too. |
@@ -260,6 +270,7 @@ Subscribe with `chart.on(event, handler)`; every subscription returns an unsubsc
 | `replay:end` | `{ reason }` | Replay ended and the full history is back: `'stopped'` (`stop()`), `'finished'` (the last bar was revealed), or `'market'` (a symbol switch replaced the history — a timeframe or session switch keeps the replay). |
 | `viewport:changed` | `{ from, to }` (epoch-ms) | The visible time range moved (pan/zoom/fit) — fires per applied change, not debounced. The seam viewport-sync links between charts build on. |
 | `theme:changed` | the resolved theme object | The app theme changed — `setTheme(...)` or the in-chart settings dialog (Canvas → Theme). Host chrome around the chart (toolbars, panels, page shells) re-skins from the payload. Plot-only cosmetic edits (a `layout.background` set through the config) do **not** fire it. |
+| `locale:changed` | `{ locale, direction }` | The chart's localization changed through `setLocale(...)`, after the chart re-rendered. `direction` is resolved (`'ltr'` or `'rtl'`), so host chrome around the chart can follow. Fires on every `setLocale` call. A workspace emits its own after every cell has switched. |
 | `priceStyle:change` | `{ from, to }` | The base price style is switching (candles, line, area, a chart-type id, …). Fires **synchronously, before the chart repaints** in the new style, whatever the path: the topbar style menu, `ctx.setPriceStyle`, `chart.renderer.set('priceStyle', …)`, the settings dialog, `applyConfig` and config templates, or a state restore. Never fires for the style the chart was created with, nor for a set to the style already shown. While it runs the chart still shows `from`, so a listener can capture the outgoing frame (`chart.renderer.screenshotCanvas()`) to animate the switch. Don't change the style again from inside the listener. A workspace relays it per cell as `cell:priceStyle`. |
 | `mark:click` | `{ id, ids, time, group? }` | A [timeline mark](#chartmarks--the-timeline-marks-control-surface) glyph was clicked — `ids` lists every mark under it (several marks of one group on one bar fold into a cluster), `id`/`time` its first. Fires before the popup opens; a mark without content opens none, so this is where a host shows its own UI. |
 | `alert` | engine alert | A script raised an alert. Never fires for bars a [replay](#chartreplay--the-bar-replay-control-surface) reveals. |
@@ -284,8 +295,8 @@ chart is never left half-changed.
 | `getConfig()` | Snapshot the renderer's full cosmetics as a serializable, versioned JSON document (or `null`). |
 | `applyConfig(config)` | Apply a full or partial config document from `getConfig()`; malformed/unknown fields are ignored. |
 | `onConfigChanged(cb)` | Subscribe to cosmetic-config changes — the in-chart settings dialog commits through `applyConfig`, so this is how host chrome mirroring a config value (a time-zone display, a saved template) learns about in-chart edits. Re-pull `get(…)`/`getConfig()` in the callback. Returns an unsubscribe fn; silent no-op unsubscribe on a renderer without a rich config. |
-| `onCrosshairMove(cb)` | Subscribe to crosshair movement — `time`/`price` under the cursor, per-series values, and the hovered bar's OHLC (null fields when the cursor leaves the chart). Returns an unsubscribe fn. The public seam for host status lines and data windows. |
-| `onClick(cb)` | Subscribe to clicks — and touch taps — on the plot (never the end of a pan): `{ time }` is the open time of the bar under it (`null` off the bars). On touch a tap moves no crosshair, so this is how an interaction learns which bar was chosen. A press on a drawing belongs to the drawing and reports no click: set [`drawingsInteractive`](./renderer-features.md) to `false` while picking. Returns an unsubscribe fn. |
+| `onCrosshairMove(cb)` | Subscribe to crosshair movement — `time`/`price` under the cursor, per-series values, and the hovered bar's OHLC (null fields when the cursor leaves the chart). `price` is the value on the scale of the pane under the cursor — a price on the price pane, an indicator value on a study pane — and `paneKind` (`'price'`, `'study'` or `null`) tells which; `paneId` names the pane, as [`chart.panes.list()`](#chartpanes--the-pane-control-surface) reports it (`null` off the plot). Returns an unsubscribe fn. The public seam for host status lines and data windows. |
+| `onClick(cb)` | Subscribe to clicks — and touch taps — on the plot (never the end of a pan): `{ time, price, paneKind, paneId }`. `time` is the open time of the bar under it (`null` off the bars); `price`, `paneKind` and `paneId` read the clicked pane the way `onCrosshairMove` does, so a click on a study pane names that pane and its value. On touch a tap moves no crosshair, so this is how an interaction learns which bar was chosen. A press on a drawing belongs to the drawing and reports no click: set [`drawingsInteractive`](./renderer-features.md) to `false` while picking. Returns an unsubscribe fn. |
 | `dataWindowReadout()` | The bar under the crosshair (or the latest bar when the cursor is off the plot) as a display-ready snapshot: `date`, `time`, an `ohlc` block, and one `groups` entry per indicator with a row per plot in its own color. Values are pre-formatted on their pane's scale. `null` on a renderer without the seam — see [renderer features](./renderer-features.md#data-window-readout). |
 | `setExternalCrosshair(time, price?)` | Show (or clear, with `null`) a **ghost crosshair** at a data-space position driven from OUTSIDE this chart — the multi-chart crosshair-sync seam ([the workspace](./workspace.md) drives it from the linked cells' pointers). A ghost never re-emits `onCrosshairMove` (one-way by contract — no echo loops). A [`crosshairOverride`](./renderer-features.md) applies to the ghost too — its line style and its `shadeRight` veil, which covers every bar in view when the ghost lies left of the window. Silent no-op on a renderer without the optional port seam; feature-detect with `supportsExternalCrosshair`. |
 | `set('dialogHost', el)` | Where the renderer mounts its MODAL dialogs (chart settings, indicator settings). Multi-chart shells pass their root element so dialogs center over the whole grid instead of clipping inside one cell — the workspace does this automatically for every cell. Runtime-only; never part of the config template. |
@@ -308,6 +319,85 @@ chart.renderer.set({ logScale: true, currentPriceLine: false });
 
 See [renderer-features.md](./renderer-features.md) for the full feature catalog (common +
 native-specific) and config/screenshot examples.
+
+### Letting the user pick a bar or a range
+
+Selecting a bar, or a range from bar A to bar B, takes no extra API: `onClick` reports the bar
+that was clicked, and three runtime features shape the chart while the user picks.
+
+- **`crosshairOverride`** restyles the crosshair for the pick — for example only the vertical
+  line, with `shadeRight` dimming every bar after the one under the cursor.
+- **`drawingsInteractive: false`** keeps the pointer away from user drawings, so a click on a
+  trend line still reaches `onClick` instead of selecting the line.
+- **`highlights`** shades the result — a single bar, or the span between two picks — and stays
+  on screen as the crosshair moves.
+
+```js
+const HOUR = 3_600_000; // the chart's bar duration
+
+function pickBar(chart) {
+    chart.renderer.set({
+        crosshairOverride: { horizontal: false, shadeRight: { color: 'rgba(0, 0, 0, 0.35)' } },
+        drawingsInteractive: false,
+    });
+    return new Promise((resolve) => {
+        const off = chart.renderer.onClick(({ time }) => {
+            if (time == null) return; // clicked past the bars — keep waiting
+            off();
+            chart.renderer.set({ crosshairOverride: null, drawingsInteractive: true });
+            resolve(time);
+        });
+    });
+}
+
+const a = await pickBar(chart);
+const b = await pickBar(chart);
+chart.renderer.set('highlights', [
+    { from: Math.min(a, b), to: Math.max(a, b) + HOUR, color: 'rgba(41, 98, 255, 0.15)' },
+]);
+```
+
+Both overrides are runtime-only and never saved with the config, so a reload mid-pick can't
+leave the chart stuck in picking mode. Clear the selection with `set('highlights', [])`.
+
+---
+
+## `chart.panes` — the pane control surface
+
+A chainable facade over the chart's **panes**: the price pane on top and a study pane per
+indicator that draws in its own pane. It lists them with the indicators each holds and moves,
+merges, collapses and maximizes them — the same operations as the in-chart pane buttons and the
+legend's **Move to** menu, so a host toolbar and the built-in controls stay in step. The
+mutations need a renderer with pane management (`capabilities.paneManagement`, the native
+renderer); elsewhere they warn and no-op, and `list()` still reports the panes.
+
+| Member | Description |
+|---|---|
+| `supported` | Whether the active renderer supports pane management — use it to show or hide host UI. |
+| `list()` | The panes, top to bottom: `{ id, kind, order, collapsed, maximized, heightWeight?, indicators }`, where `kind` is `'price'` or `'study'` and each indicator entry is `{ id, title, shorttitle?, ownScale }`. `heightWeight` is the pane's share of the height (see `setHeightWeight`); a renderer that doesn't report pane sizes leaves it out. A study pane is listed while it holds an indicator. |
+| `setHeightWeight(paneId, weight)` | Size a pane. The panes share the plot height in proportion to their weights — by default 3 for the price pane and 1 for each study pane — so `setHeightWeight('price', 6)` next to two study panes gives the price pane three quarters of the height. The weight stays when other indicators join the pane, until the user drags a separator or you set it again; a collapsed pane applies it when expanded. `weight` must be a positive number. |
+| `move(paneId, dir)` | Move a study pane one slot `'up'` or `'down'`. The price pane stays on top. |
+| `collapse(paneId, collapsed?)` | Collapse a pane to a thin strip with its legend, or restore it (`false`). |
+| `maximize(paneId \| null)` | Let one pane fill the plot, hiding the others, or restore the split with `null`. |
+| `moveIndicator(id, target)` | Move or merge an indicator — the same as its handle's [`moveTo(target)`](#indicatorhandle). |
+| `remove(paneId)` | Remove a study pane and every indicator in it. The price pane can't be removed. |
+
+Every change fires `pane:changed` — including a pane being created, and the user resizing panes
+with a separator — so follow it to keep host UI current or to save the heights; `indicator:moved`
+reports moves. A pane is created with its indicator, so read `list()` on that `pane:changed`, or
+once the indicator's handle is `ready`, rather than right after `addIndicator` returns.
+
+```js
+const rsi = chart.addNativeIndicator('rsi');
+rsi.on('ready', () => {
+    const pane = chart.panes.list().find((p) => p.indicators.some((i) => i.id === rsi.id));
+    chart.panes.collapse(pane.id); // a host "hide pane" toggle
+});
+
+chart.panes.setHeightWeight('price', 6); // a taller price pane
+
+chart.on('pane:changed', () => renderPaneToolbar(chart.panes.list()));
+```
 
 ---
 

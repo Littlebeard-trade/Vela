@@ -7,10 +7,13 @@ import { injectStyles } from '../ui/styles';
 import { Tooltip } from '../ui/components/tooltip';
 import { CalloutBubble } from '../ui/components/callout-bubble';
 import { Menu } from '../ui/components/menu';
-import { segmentVisibility, statuslineMenuItems, STATUSLINE_LADDER, readoutCells, type StatuslinePart, type StatuslineLayout } from './statusline-model';
+import { segmentVisibility, statuslineMenuItems, STATUSLINE_LADDER, readoutCells, SHOW_CHART_LABEL, type StatuslinePart, type StatuslineLayout } from './statusline-model';
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
+import type { MessageDescriptor, Translator } from '../core/i18n/types';
 import { SESSION_PRE, SESSION_POST, SESSION_OFF } from '../core/palette';
 import { iconAt } from '../core/icons';
-import { fmtPrice, fmtChange, fmtChangePct, decimalsFor } from './format';
+import { decimalsFor } from './format';
 import { timeframeLabel } from './timeframe';
 import { tickerIconEl } from './symbol-icon';
 import { parseSymbol } from '../data/ProviderRegistry';
@@ -110,6 +113,9 @@ const CSS = `
 .vela-statusline .vela-sl-values { font-variant-numeric: tabular-nums; }
 .vela-statusline .vela-sl-ohlc { display: flex; gap: var(--vela-space-1); color: var(--vela-fg-muted); }
 .vela-statusline .vela-sl-ohlc b { color: var(--vela-fg); font-weight: 500; }
+/* Prices and the signed change are left-to-right isolates (each carries dir="ltr"): inside a
+ * right-to-left page the row's order mirrors, but a sign stays in front of its number. */
+.vela-statusline .vela-sl-ohlc b, .vela-statusline .vela-sl-change { unicode-bidi: isolate; }
 /* The change value wears the SAME ink as the OHLC values (set inline per render) —
  * these are the pre-ink fallbacks only. */
 .vela-statusline .vela-sl-change[data-dir='up'] { color: var(--vela-up); }
@@ -177,15 +183,18 @@ export type StatuslineReadout = 'ohlc' | 'value';
  *  tapes wear the single 'extended' state — they have no pre/post split. */
 export type MarketStatus = 'open' | 'pre' | 'post' | 'extended' | 'closed' | 'holiday';
 
-const MARKET_LABELS: Record<MarketStatus, string> = {
-    open: 'Market Open',
-    pre: 'Pre-Market',
-    post: 'Post-Market',
-    extended: 'Extended Hours',
-    closed: 'Market Closed',
-    holiday: 'Market Holiday',
+const MARKET_LABELS: Record<MarketStatus, MessageDescriptor> = {
+    open: msg('widget.statusline.market.open', 'Market Open'),
+    pre: msg('widget.statusline.market.pre', 'Pre-Market'),
+    post: msg('widget.statusline.market.post', 'Post-Market'),
+    extended: msg('widget.statusline.market.extended', 'Extended Hours'),
+    closed: msg('widget.statusline.market.closed', 'Market Closed'),
+    holiday: msg('widget.statusline.market.holiday', 'Market Holiday'),
 };
-const REPLAY_LABEL = 'Replay Mode';
+const REPLAY_LABEL = msg('widget.statusline.replay', 'Replay Mode');
+/** The bar change beside the values: the price change, then the percent change. */
+const CHANGE_TEXT = msg('widget.statusline.change', '{change} ({percent})');
+const EM_DASH = '—';
 /**
  * The replay badge: the circle and its glyph (two left-pointing triangles) in ONE drawing —
  * a circle behind an icon element rounds to device pixels separately from it, so the glyph
@@ -320,6 +329,13 @@ export class Statusline {
     private fitKey: string | null = null;
     /** Web fonts landing after the last fit change every width without a resize. */
     private readonly onFontsLoaded = (): void => this.fit();
+    /** The bound chart's translator (English until {@link onChart}). */
+    private i18n: Translator | null = null;
+    private meta: { timeframe: string; provider: string } | null = null;
+
+    private t(text: MessageDescriptor): string {
+        return textOf(this.i18n, text);
+    }
 
     constructor(
         private readonly host: HTMLElement,
@@ -350,7 +366,7 @@ export class Statusline {
             icon: 'market-open',
             background: `color-mix(in srgb, ${MARKET_INKS.open} 20%, transparent)`,
             color: MARKET_INKS.open,
-            label: MARKET_LABELS.open,
+            label: this.t(MARKET_LABELS.open),
             host,
         });
         this.replayBadge = doc.createElement('span');
@@ -365,13 +381,14 @@ export class Statusline {
         this.ohlcEl.className = 'vela-sl-ohlc';
         this.changeEl = doc.createElement('span');
         this.changeEl.className = 'vela-sl-change';
+        this.changeEl.dir = 'ltr';
         // Show-chart eye: takes the value readout's place while the chart is hidden
         // (same glyph the legend rows wear on a hidden indicator). syncParts drives it.
         this.eyeEl = doc.createElement('button');
         this.eyeEl.type = 'button';
         this.eyeEl.className = 'vela-sl-eye';
         this.eyeEl.innerHTML = iconAt('eye-off', 14);
-        this.eyeEl.setAttribute('aria-label', 'Show chart');
+        this.eyeEl.setAttribute('aria-label', this.t(SHOW_CHART_LABEL));
         this.eyeEl.style.display = 'none';
         this.eyeEl.addEventListener('click', (e) => {
             e.stopPropagation(); // never bubbles into the chip's own handlers
@@ -394,8 +411,8 @@ export class Statusline {
         doc.fonts?.addEventListener('loadingdone', this.onFontsLoaded);
         // The tooltips portal to the nearest `.vela-ui` ancestor for theme tokens — resolve
         // them AFTER the statusline is in the DOM. The badge's content follows setMarketStatus.
-        this.marketTip = new Tooltip(this.marketEl, { content: MARKET_LABELS.open, placement: 'bottom' });
-        this.eyeTip = new Tooltip(this.eyeEl, { content: 'Show chart', placement: 'bottom' });
+        this.marketTip = new Tooltip(this.marketEl, { content: this.t(MARKET_LABELS.open), placement: 'bottom' });
+        this.eyeTip = new Tooltip(this.eyeEl, { content: this.t(SHOW_CHART_LABEL), placement: 'bottom' });
         this.setMarketStatus('open'); // crypto trades continuously (no session model yet)
         this.render();
     }
@@ -494,7 +511,18 @@ export class Statusline {
 
     /** The "· BINANCE · 1h" segment after the symbol — venue first, then resolution. */
     setMeta(timeframe: string, provider: string): void {
-        this.metaEl.textContent = `${provider ? `· ${provider.toUpperCase()} ` : ''}· ${timeframeLabel(timeframe)}`;
+        this.meta = { timeframe, provider };
+        this.metaEl.textContent = `${provider ? `· ${provider.toUpperCase()} ` : ''}· ${timeframeLabel(timeframe, this.i18n)}`;
+        this.fit();
+    }
+
+    /** Re-read every label and value in the chart's language. */
+    relocalize(): void {
+        this.eyeEl.setAttribute('aria-label', this.t(SHOW_CHART_LABEL));
+        this.eyeTip.setContent(this.t(SHOW_CHART_LABEL));
+        this.dressBadge();
+        if (this.meta) this.setMeta(this.meta.timeframe, this.meta.provider);
+        this.fitKey = null;
         this.fit();
     }
 
@@ -518,7 +546,7 @@ export class Statusline {
         this.replayBadge.hidden = !this.replaying;
         if (this.replaying) {
             this.marketEl.dataset.status = 'replay';
-            this.marketTip.setContent(REPLAY_LABEL);
+            this.marketTip.setContent(this.t(REPLAY_LABEL));
             return;
         }
         const status = this.marketStatus;
@@ -528,9 +556,9 @@ export class Statusline {
             icon: `market-${status}`,
             background: `color-mix(in srgb, ${ink} 20%, transparent)`,
             color: ink,
-            label: MARKET_LABELS[status],
+            label: this.t(MARKET_LABELS[status]),
         });
-        this.marketTip.setContent(MARKET_LABELS[status]);
+        this.marketTip.setContent(this.t(MARKET_LABELS[status]));
     }
 
     /** Show/hide one part — the settings dialog's Status line tab and the right-click
@@ -584,7 +612,7 @@ export class Statusline {
         e.stopPropagation();
         const chartVisible = this.menuHooks.chartVisible();
         this.setChartHidden(!chartVisible); // opportunistic re-sync with the live renderer
-        this.menu.setItems(statuslineMenuItems(this.parts, chartVisible));
+        this.menu.setItems(statuslineMenuItems(this.parts, chartVisible, this.i18n));
         this.menu.openAt(e.clientX, e.clientY);
     };
 
@@ -604,6 +632,9 @@ export class Statusline {
     /** (Re)bind to a chart instance — called after every widget rebuild. */
     onChart(chart: Vela): void {
         this.detach();
+        const relabel = this.i18n !== chart.i18n;
+        this.i18n = chart.i18n;
+        if (relabel) this.relocalize();
         this.lastBar = null;
         this.hoverBar = null;
         this.unsubs.push(
@@ -691,11 +722,17 @@ export class Statusline {
         // ONE ink for the whole readout — OHLC values and the change share it, so the
         // row always reads in the color the plot wears at this bar.
         const ink = up ? (this.upColor ?? 'var(--vela-up)') : (this.downColor ?? 'var(--vela-down)');
+        const format = this.i18n?.format;
+        // Grouped like a price readout (`1,234.50`); English when no chart is bound yet.
+        const price = (v: number): string =>
+            !Number.isFinite(v) ? EM_DASH : format ? format.price(v, { decimals: dp, grouping: true, surface: 'statusLine' }) : v.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+        const percent = (v: number): string => (format ? format.percent(v, { surface: 'statusLine' }) : `${v >= 0 ? '+' : '-'}${Math.abs(v).toFixed(2)}%`);
         const cell = (k: string, v: number) => {
             const s = doc.createElement('span');
             if (k) s.append(`${k} `);
             const b = doc.createElement('b');
-            b.textContent = fmtPrice(v, dp);
+            b.dir = 'ltr';
+            b.textContent = price(v);
             b.style.color = ink;
             s.appendChild(b);
             return s;
@@ -705,8 +742,15 @@ export class Statusline {
         // readout is that value — the close — at every level. The minimal level keeps the
         // percent delta alone.
         const { level } = this.layout;
-        this.ohlcEl.replaceChildren(...readoutCells(level, this.readout).map((c) => cell(c.label, bar[c.key])));
-        this.changeEl.textContent = level === 'minimal' ? fmtChangePct(bar.open, bar.close) : fmtChange(bar.open, bar.close);
+        this.ohlcEl.replaceChildren(...readoutCells(level, this.readout, this.i18n).map((c) => cell(c.label, bar[c.key])));
+        let change = '';
+        if (Number.isFinite(bar.open) && Number.isFinite(bar.close) && bar.open !== 0) {
+            const diff = bar.close - bar.open;
+            const pct = percent((diff / bar.open) * 100);
+            const signed = (diff >= 0 ? '+' : '') + price(diff);
+            change = level === 'minimal' ? pct : textOf(this.i18n, CHANGE_TEXT, { change: signed, percent: pct });
+        }
+        this.changeEl.textContent = change;
         this.changeEl.dataset.dir = up ? 'up' : 'down';
         this.changeEl.style.color = ink;
     }

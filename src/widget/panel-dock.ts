@@ -7,6 +7,8 @@
 // The chrome is reached through {@link PanelChrome} (the topbar implements it structurally) —
 // the dock never imports the topbar, and a different chrome can host the same buttons.
 import type { Vela } from '../Vela';
+import { textOf } from '../core/i18n/text';
+import type { MessageLike, Translator } from '../core/i18n/types';
 import type { PanelsState } from '../state/document';
 import { DEFAULT_PANEL_ORDER, sidePanels, type SidePanelButton, type SidePanelDescriptor, type SidePanelHandle, type SidePanelHeader, type WidgetContext } from './contributions';
 import { SidePanel } from './side-panel';
@@ -25,12 +27,14 @@ export interface PanelDockDeps {
     context(): WidgetContext;
     /** The dock's persistable state changed (open panel, or a width). */
     changed?(): void;
+    /** The shell's translator (panel titles). Absent: English. */
+    i18n?: Translator;
 }
 
 /** A panel the SHELL owns and destroys — the dock only docks it. */
 export interface BuiltInPanel {
     id: string;
-    title: string;
+    title: MessageLike;
     icon: string;
     order: number;
     panel: SidePanel;
@@ -40,7 +44,7 @@ export interface BuiltInPanel {
 
 interface Entry {
     id: string;
-    title: string;
+    title: MessageLike;
     icon: string;
     order: number;
     panel: SidePanel;
@@ -93,6 +97,7 @@ export class PanelDock {
                 maxWidth: desc.maxWidth,
                 overlay: desc.overlay,
                 maximizable: desc.maximizable,
+                ...(this.deps.i18n ? { i18n: this.deps.i18n } : {}),
             });
             const entry: Entry = {
                 id: desc.id,
@@ -147,7 +152,13 @@ export class PanelDock {
     /** The docked panels in dock order — what a non-topbar chrome (the mobile
      *  three-dots drawer) lists so every panel stays reachable there too. */
     list(): ReadonlyArray<SidePanelButton> {
-        return this.entries.map((e) => ({ id: e.id, title: e.title, icon: e.icon }));
+        return this.entries.map((e) => ({ id: e.id, title: textOf(this.deps.i18n, e.title), icon: e.icon }));
+    }
+
+    /** Re-read every panel's header and the toggle tooltips in the current language. */
+    relocalize(): void {
+        for (const entry of this.entries) entry.panel.relocalize();
+        this.publish();
     }
 
     /** The dock's persistable state, or null when there is nothing worth saving. */
@@ -230,7 +241,7 @@ export class PanelDock {
 
     /** Push the current toggle group to the chrome, pressed states included. */
     private publish(): void {
-        const buttons: SidePanelButton[] = this.entries.map((e) => ({ id: e.id, title: e.title, icon: e.icon }));
+        const buttons: SidePanelButton[] = this.list().slice();
         this.deps.chrome.setPanelButtons(buttons, (id) => this.toggle(id));
         for (const entry of this.entries) this.deps.chrome.setPanelActive(entry.id, entry.panel.open);
     }

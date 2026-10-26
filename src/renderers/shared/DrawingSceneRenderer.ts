@@ -9,6 +9,7 @@ import type {
 } from '../../core/model/drawings';
 import type { VelaTheme } from '../../core/options';
 import { dashPattern, extendEndpoints, contrastColor, namedFontSize, autoFontSize } from './drawing-geometry';
+import { wrapTextLines } from './text-wrap';
 
 /** The full set of Pine drawings for one indicator, batched into one pass. */
 export interface DrawingSet {
@@ -440,25 +441,7 @@ export class DrawingSceneRenderer {
     }
 
     private wrapText(ctx: CanvasRenderingContext2D, font: string, text: string, maxWidth: number): string[] {
-        const out: string[] = [];
-        for (const para of text.split('\n')) {
-            if (this.measure(ctx, font, para) <= maxWidth) {
-                out.push(para);
-                continue;
-            }
-            let line = '';
-            for (const word of para.split(/(\s+)/)) {
-                const trial = line + word;
-                if (line && this.measure(ctx, font, trial) > maxWidth) {
-                    out.push(line.trimEnd());
-                    line = word.trimStart();
-                } else {
-                    line = trial;
-                }
-            }
-            if (line.trim()) out.push(line.trimEnd());
-        }
-        return out;
+        return wrapTextLines(text, maxWidth, (t) => this.measure(ctx, font, t));
     }
 
     private drawBoxText(ctx: CanvasRenderingContext2D, bx: DrawingBox, left: number, top: number, w: number, h: number): void {

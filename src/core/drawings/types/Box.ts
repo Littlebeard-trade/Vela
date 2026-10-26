@@ -1,7 +1,8 @@
+import { msg } from '../../i18n/message';
 import { Drawing, type AnchorSlot } from '../Drawing';
 import type { Projector } from '../geometry';
 import type { SettingsSchema } from '../schema';
-import { LINE_FIELDS, TEXT_FIELDS } from '../schema';
+import { TEXT_FIELDS, BORDER_FIELDS } from '../schema';
 import { distToSegment, handleAt, pointInBox } from '../hittest';
 
 /** A rectangle defined by two opposite corners. Optional fill + border. */
@@ -61,8 +62,8 @@ export class Box extends Drawing {
     schema(): SettingsSchema {
         return {
             fields: [
-                ...LINE_FIELDS.map((f) => ({ ...f, label: f.label.replace('Line', 'Border') })),
-                { path: 'style.fillColor', label: 'Fill color', kind: 'color', group: 'fill' },
+                ...BORDER_FIELDS,
+                { path: 'style.fillColor', label: msg('drawing.box.fillColor', 'Fill color'), kind: 'color', group: 'fill' },
                 ...TEXT_FIELDS,
             ],
         };

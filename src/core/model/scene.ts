@@ -1,3 +1,4 @@
+import type { MessageLike } from '../i18n/types';
 import type { Millis } from './time';
 import type { OHLCV } from './ohlcv';
 import type { SeriesSpec, LineStyle } from './series';
@@ -10,7 +11,8 @@ export interface Pane {
     kind: PaneKind;
     /** Display order, top-to-bottom; the price pane is conventionally order 0. */
     order: number;
-    /** Relative height weight among panes (the renderer normalizes). */
+    /** Relative height weight among panes (the renderer normalizes). Omitted keeps the
+     *  weight an existing pane already has; a new pane gets the renderer's default. */
     heightWeight?: number;
     title?: string;
 }
@@ -62,6 +64,8 @@ export interface PriceLine {
     lineStyle?: LineStyle;
     width?: number;
     title?: string;
+    /** {@link title} in the chart's language. Absent ⇒ {@link title}. */
+    displayTitle?: MessageLike;
 }
 
 /**

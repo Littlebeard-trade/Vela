@@ -9,6 +9,7 @@ export interface PaneController {
     removePaneAndIndicators(paneId: string): void;
     collapsePane(paneId: string, collapsed: boolean): void;
     maximizePane(paneId: string | null): void;
+    setPaneHeightWeight(paneId: string, weight: number): void;
     moveIndicator(id: string, target: MoveTarget): void;
 }
 
@@ -51,6 +52,18 @@ export class PanesControl {
     /** Maximize one pane to fill the plot, or restore the split (`null`). */
     maximize(paneId: string | null): this {
         if (this.guard()) this.controller.maximizePane(paneId);
+        return this;
+    }
+
+    /**
+     * Set a pane's height weight: the panes share the plot height in proportion to their
+     * weights, so `setHeightWeight('price', 6)` next to two study panes at 1 gives the price
+     * pane three quarters of the height. The weight sticks until the user drags a separator
+     * or it is set again; a collapsed pane applies it when expanded. `weight` must be a
+     * positive number.
+     */
+    setHeightWeight(paneId: string, weight: number): this {
+        if (this.guard()) this.controller.setPaneHeightWeight(paneId, weight);
         return this;
     }
 

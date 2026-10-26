@@ -621,6 +621,38 @@ describe('EngineOrchestrator', () => {
         }
     });
 
+    it('a removed native keeps its own teardown push, but its context goes dead after stop', async () => {
+        class LateNative implements NativeIndicator {
+            ctx: NativeIndicatorContext | null = null;
+            start(ctx: NativeIndicatorContext): void { this.ctx = ctx; ctx.emit({}); ctx.pushData('live'); }
+            onBars(): void {}
+            onViewport(): void {}
+            setInputs(): void {}
+            suspend(): void {}
+            resume(): void {}
+            stop(): void { this.ctx!.pushData(null); }
+        }
+        let inst: LateNative | null = null;
+        registerNativeIndicator({ ...testNativeDescriptor, type: 'late-native', title: 'Late', create: () => (inst = new LateNative()) });
+        try {
+            const renderer = new FakeRenderer();
+            const chart = new Vela({} as unknown as HTMLElement, { live: false, volume: false }, { renderer, engines: [], dataFeed: new MockDataFeed() });
+            const h = chart.addNativeIndicator('late-native');
+            await chart.ready();
+            await flush();
+            expect(renderer.nativePushes).toContainEqual(['late-native', 'live']);
+
+            h.remove();
+            expect(renderer.nativePushes[renderer.nativePushes.length - 1]).toEqual(['late-native', null]); // stop() still clears its layer
+            const pushes = renderer.nativePushes.length;
+            inst!.ctx!.pushData('late'); // work it left in flight resolves after the removal
+            expect(renderer.nativePushes.length).toBe(pushes);
+            chart.destroy();
+        } finally {
+            unregisterNativeIndicator('late-native');
+        }
+    });
+
     it('a native hidden before it started is neither suspended nor stopped — start runs when it is first shown', async () => {
         // An instance that assumes the contract: suspend/stop only after start (it reads
         // its context there, like the layer-backed natives that clear their channel).
@@ -2081,6 +2113,41 @@ describe('EngineOrchestrator — chart-type SDK (registerChartType)', () => {
 
         chart.destroy();
         expect(calls[calls.length - 1]).toBe('stop'); // destroy releases the engine
+    });
+
+    it('a suspended engine pushes nothing until it resumes; a stopped engine stays silent', async () => {
+        let host: SeriesDataEngineHost | null = null;
+        registerChartType({
+            id: 'doubled',
+            dataEngine: () => ({
+                start(h) { host = h; },
+                suspend() {},
+                resume() { host!.pushData(['resumed']); },
+                stop() {},
+            }),
+        });
+        const renderer = new FakeRenderer();
+        const chart = new Vela({} as unknown as HTMLElement, { live: false, volume: false }, { renderer, engines: [], dataFeed: new MockDataFeed() });
+        await chart.ready();
+        await flush();
+        renderer.firePriceStyle('doubled');
+        await flush();
+        renderer.firePriceStyle('candles');
+        await flush();
+
+        renderer.nativePushes.length = 0;
+        host!.pushData(['late']); // a fetch resolving after the style was left
+        host!.pushPending([[1, 2]]);
+        expect(renderer.nativePushes).toEqual([]);
+
+        renderer.firePriceStyle('doubled');
+        await flush();
+        expect(renderer.nativePushes).toEqual([['doubled', ['resumed']]]); // the resume re-push lands
+
+        chart.destroy();
+        renderer.nativePushes.length = 0;
+        host!.pushData(['after-destroy']);
+        expect(renderer.nativePushes).toEqual([]);
     });
 
     it('a chart CONSTRUCTED in an engine style starts the engine once ready', async () => {

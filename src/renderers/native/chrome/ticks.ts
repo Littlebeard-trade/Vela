@@ -5,7 +5,8 @@
  *    DST/session-aware ticks are a later refinement — see the plan's risk list).
  */
 import type { PctScale } from '../core/SceneGraph';
-import { zonedDate } from './tz';
+import { ENGLISH_FORMAT } from '../../../core/format/formatters';
+import type { FormatSurface, ResolvedFormatters, TimeTickUnit } from '../../../core/format/types';
 
 export function priceTicks(min: number, max: number, target = 6): number[] {
     if (!(max > min) || !Number.isFinite(min) || !Number.isFinite(max)) return [];
@@ -114,31 +115,24 @@ function toIndex(price: number, baseline: number): number {
     return (price / baseline) * 100;
 }
 
+// Every label below goes through the chart's formatters (`fmt`, from `chart.i18n.format`);
+// without them, the built-in English formatting applies.
+
 /** Format a percent change with a sign (`+2.34%` / `-1.20%`). */
-export function formatPct(pct: number): string {
-    const sign = pct >= 0 ? '+' : '-';
-    return `${sign}${Math.abs(pct).toFixed(2)}%`;
+export function formatPct(pct: number, fmt: ResolvedFormatters = ENGLISH_FORMAT, surface: FormatSurface = 'priceAxis'): string {
+    return fmt.price(pct, { decimals: 2, mode: 'percent', surface });
 }
 
 /** Format an indexed-to-100 value (plain number, two decimals, e.g. `103.45`). */
-export function formatIndex(idx: number): string {
-    return idx.toFixed(2);
+export function formatIndex(idx: number, fmt: ResolvedFormatters = ENGLISH_FORMAT, surface: FormatSurface = 'priceAxis'): string {
+    return fmt.price(idx, { decimals: 2, mode: 'indexed', surface });
 }
 
 /** Abbreviate a magnitude with a K/M/B suffix (e.g. `1.2M`) — for volume axes, where a
  *  raw `1234567.00` reads poorly. Small values keep up to two decimals, dropping trailing
  *  zeros; a bare `0` stays `0`. */
-export function formatCompactValue(v: number): string {
-    const a = Math.abs(v);
-    if (a >= 1e9) return `${trimZeros(v / 1e9)}B`;
-    if (a >= 1e6) return `${trimZeros(v / 1e6)}M`;
-    if (a >= 1e3) return `${trimZeros(v / 1e3)}K`;
-    return trimZeros(v);
-}
-
-/** Up to two decimals, trailing zeros removed (`1.20 → 1.2`, `3.00 → 3`). */
-function trimZeros(v: number): string {
-    return Number(v.toFixed(2)).toString();
+export function formatCompactValue(v: number, fmt: ResolvedFormatters = ENGLISH_FORMAT, surface: FormatSurface = 'priceAxis'): string {
+    return fmt.compact(v, { decimals: 2, trimZeros: true, surface });
 }
 
 /**
@@ -157,6 +151,7 @@ export function paneAxisTicks(
     pct?: PctScale,
     mintick?: number,
     format?: 'volume' | 'none',
+    fmt: ResolvedFormatters = ENGLISH_FORMAT,
 ): Array<{ price: number; label: string }> {
     if (format === 'none') return [];
     if (pct) {
@@ -166,16 +161,16 @@ export function paneAxisTicks(
         if (indexed) {
             const iLo = toIndex(lo, baseline);
             const iHi = toIndex(hi, baseline);
-            return priceTicks(iLo, iHi, tickCount(heightPx)).map((idx) => ({ price: (baseline * idx) / 100, label: formatIndex(idx) }));
+            return priceTicks(iLo, iHi, tickCount(heightPx)).map((idx) => ({ price: (baseline * idx) / 100, label: formatIndex(idx, fmt) }));
         }
         const pLo = toPct(lo, baseline);
         const pHi = toPct(hi, baseline);
-        return priceTicks(pLo, pHi, tickCount(heightPx)).map((p) => ({ price: baseline * (1 + p / 100), label: formatPct(p) }));
+        return priceTicks(pLo, pHi, tickCount(heightPx)).map((p) => ({ price: baseline * (1 + p / 100), label: formatPct(p, fmt) }));
     }
     if (format === 'volume') {
-        return paneTicks(scale, heightPx).map((price) => ({ price, label: formatCompactValue(price) }));
+        return paneTicks(scale, heightPx).map((price) => ({ price, label: formatCompactValue(price, fmt) }));
     }
-    return paneTicks(scale, heightPx).map((price) => ({ price, label: formatPriceLabel(scale, heightPx, price, mintick) }));
+    return paneTicks(scale, heightPx).map((price) => ({ price, label: formatPriceLabel(scale, heightPx, price, mintick, fmt) }));
 }
 
 /** Format a single price for an axis chip in the pane's mode (percent / indexed vs absolute; a
@@ -187,11 +182,13 @@ export function formatAxisValue(
     pct?: PctScale,
     mintick?: number,
     format?: 'volume' | 'none',
+    fmt: ResolvedFormatters = ENGLISH_FORMAT,
+    surface: FormatSurface = 'priceAxis',
 ): string {
     if (format === 'none') return '';
-    if (pct) return pct.indexed ? formatIndex(toIndex(value, pct.baseline)) : formatPct(toPct(value, pct.baseline));
-    if (format === 'volume') return formatCompactValue(value);
-    return formatPriceLabel(scale, heightPx, value, mintick);
+    if (pct) return pct.indexed ? formatIndex(toIndex(value, pct.baseline), fmt, surface) : formatPct(toPct(value, pct.baseline), fmt, surface);
+    if (format === 'volume') return formatCompactValue(value, fmt, surface);
+    return formatPriceLabel(scale, heightPx, value, mintick, fmt, surface);
 }
 
 /**
@@ -201,13 +198,18 @@ export function formatAxisValue(
  * read well. Shared by the price axis, the current-price line, and the crosshair so
  * they always agree.
  */
-export function formatPriceLabel(scale: { min: number; max: number; log?: boolean }, heightPx: number, value: number, mintick?: number): string {
+export function formatPriceLabel(
+    scale: { min: number; max: number; log?: boolean },
+    heightPx: number,
+    value: number,
+    mintick?: number,
+    fmt: ResolvedFormatters = ENGLISH_FORMAT,
+    surface: FormatSurface = 'priceAxis',
+): string {
     const wideLog = scale.log && Math.log10(scale.max) - Math.log10(scale.min) >= 1.1;
-    if (wideLog) {
-        const d = valueDecimals(value);
-        return value.toFixed(d === 0 ? 2 : d);
-    }
-    return value.toFixed(axisDecimals(scale, heightPx, mintick));
+    const valueD = wideLog ? valueDecimals(value) : 0;
+    const decimals = wideLog ? (valueD === 0 ? 2 : valueD) : axisDecimals(scale, heightPx, mintick);
+    return fmt.price(value, { decimals, mintick, mode: 'price', surface });
 }
 
 export interface TimeTick {
@@ -231,21 +233,20 @@ const STEP_LADDER = [
     DAY, 2 * DAY, WEEK, MONTH, 3 * MONTH, YEAR,
 ];
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const pad2 = (n: number): string => (n < 10 ? `0${n}` : String(n));
-
 /**
  * The crosshair's time-axis chip: `Sun 30 Aug '26 19:00`. Always the full calendar date
  * (weekday, day, month, two-digit year) so the stamp is unambiguous however far the view
  * is scrolled; the wall-clock time is appended only when bars are intraday — on a daily
  * or coarser bar the hh:mm would just echo the bar's open and add noise.
  */
-export function formatTimeStamp(ms: number, timeZone: string, barIntervalMs: number): string {
-    const d = zonedDate(ms, timeZone);
-    const date = `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} '${pad2(d.getUTCFullYear() % 100)}`;
-    if (barIntervalMs >= DAY) return date;
-    return `${date} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+export function formatTimeStamp(
+    ms: number,
+    timeZone: string,
+    barIntervalMs: number,
+    fmt: ResolvedFormatters = ENGLISH_FORMAT,
+    surface: FormatSurface = 'crosshair',
+): string {
+    return fmt.timeStamp(ms, { timeZone, withTime: barIntervalMs < DAY, surface });
 }
 
 function pickStep(targetMs: number): number {
@@ -258,7 +259,7 @@ function pickStep(targetMs: number): number {
  * a chosen time zone (0 ⇒ UTC): ticks land on local midnights/hours and the returned
  * `time` is the REAL epoch-ms (zoned alignment undone) so the X mapping stays correct.
  */
-export function timeTicks(fromMs: number, toMs: number, target = 8, offsetMs = 0): TimeTick[] {
+export function timeTicks(fromMs: number, toMs: number, target = 8, offsetMs = 0, fmt: ResolvedFormatters = ENGLISH_FORMAT): TimeTick[] {
     const span = toMs - fromMs;
     if (!(span > 0)) return [];
     const step = pickStep(span / Math.max(1, target));
@@ -266,34 +267,26 @@ export function timeTicks(fromMs: number, toMs: number, target = 8, offsetMs = 0
     // shift on each tick's `time` for pixel placement on the real (UTC) axis.
     const zFrom = fromMs + offsetMs;
     const zTo = toMs + offsetMs;
-    if (step >= MONTH) return calendarTicks(zFrom, zTo, step >= YEAR ? 12 : step >= 3 * MONTH ? 3 : 1, offsetMs);
+    if (step >= MONTH) return calendarTicks(zFrom, zTo, step >= YEAR ? 12 : step >= 3 * MONTH ? 3 : 1, offsetMs, fmt);
     const first = Math.ceil(zFrom / step) * step;
+    const clockUnit: TimeTickUnit = step < MIN ? 'second' : step < HOUR ? 'minute' : 'hour';
     const out: TimeTick[] = [];
     for (let zt = first; zt <= zTo; zt += step) {
         const t = zt - offsetMs;
         const d = new Date(zt);
-        let label: string;
+        let unit: TimeTickUnit;
         let major = false;
         if (step < DAY) {
-            const h = d.getUTCHours();
-            const m = d.getUTCMinutes();
-            if (h === 0 && m === 0) {
-                label = `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
-                major = true;
-            } else {
-                label = `${pad2(h)}:${pad2(m)}`;
-            }
+            major = d.getUTCHours() === 0 && d.getUTCMinutes() === 0;
+            unit = major ? 'day' : clockUnit;
         } else if (step < YEAR) {
-            label = `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
-            if (d.getUTCDate() === 1) {
-                label = MONTHS[d.getUTCMonth()]!;
-                major = true;
-            }
+            major = d.getUTCDate() === 1;
+            unit = major ? 'month' : 'day';
         } else {
-            label = String(d.getUTCFullYear());
+            unit = 'year';
             major = true;
         }
-        out.push({ time: t, label, major });
+        out.push({ time: t, label: fmt.timeTick(t, { unit, major, offsetMs, surface: 'timeAxis' }), major });
     }
     return out;
 }
@@ -303,15 +296,16 @@ export function timeTicks(fromMs: number, toMs: number, target = 8, offsetMs = 0
  * zoned space). Fixed 30/365-day steps drift off the calendar by a day per leap year,
  * which puts each year label weeks before the January it names.
  */
-function calendarTicks(zFrom: number, zTo: number, months: number, offsetMs: number): TimeTick[] {
+function calendarTicks(zFrom: number, zTo: number, months: number, offsetMs: number, fmt: ResolvedFormatters): TimeTick[] {
     const d0 = new Date(zFrom);
     let idx = d0.getUTCFullYear() * 12 + d0.getUTCMonth();
     if (Date.UTC(Math.floor(idx / 12), idx % 12, 1) < zFrom) idx += 1;
     idx = Math.ceil(idx / months) * months;
+    const unit: TimeTickUnit = months === 12 ? 'year' : 'month';
     const out: TimeTick[] = [];
     for (let zt = Date.UTC(Math.floor(idx / 12), idx % 12, 1); zt <= zTo; idx += months, zt = Date.UTC(Math.floor(idx / 12), idx % 12, 1)) {
-        const label = months === 12 ? String(Math.floor(idx / 12)) : MONTHS[idx % 12]!;
-        out.push({ time: zt - offsetMs, label, major: true });
+        const time = zt - offsetMs;
+        out.push({ time, label: fmt.timeTick(time, { unit, major: true, offsetMs, surface: 'timeAxis' }), major: true });
     }
     return out;
 }

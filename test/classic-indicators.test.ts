@@ -8,6 +8,11 @@ import { getNativeIndicator, nativeIndicatorTypes, unregisterNativeIndicator } f
 import { classicSpecs, registerClassicIndicators, classicDescriptor } from '../src/core/native-indicators/classics';
 import { sma, ema, rma, wma, stdev, rsi, linreg, highest, lowest, percentRank, swma, cumSum, change } from '../src/core/native-indicators/classics/math';
 import type { ClassicIndicatorSpec } from '../src/core/native-indicators/classics';
+import { createTranslator, type MessageLike } from '../src/plugin';
+
+/** The catalog's text as an English chart shows it. */
+const english = createTranslator({ locale: 'en' });
+const en = (m: MessageLike | undefined): string | undefined => (m === undefined ? undefined : english.t(m));
 
 function bar(close: number, i: number, volume?: number): OHLCV {
     return { time: i * 60000, open: close, high: close + 1, low: close - 1, close, ...(volume != null ? { volume } : {}) };
@@ -109,7 +114,8 @@ describe('classic catalog registration', () => {
     });
 
     it('legend short titles match the library declarations', () => {
-        // Second argument of each published `indicator("…", "…")` in the LuxAlgo library.
+        // Second argument of each published `indicator("…", "…")` in the LuxAlgo library;
+        // the library publishes the regression as one study, so LSMA and LRS name themselves.
         const libraryShort: Record<string, string> = {
             'percent-b': '%B',
             '52-week-high-low': '52W H/L',
@@ -144,7 +150,8 @@ describe('classic catalog registration', () => {
             'keltner-channels': 'KC',
             'klinger-oscillator': 'KVO',
             'know-sure-thing': 'KST',
-            'linear-regression': 'LinReg',
+            lsma: 'LSMA',
+            'linear-regression-slope': 'LRS',
             macd: 'MACD',
             'ma-envelope': 'MA Env',
             'mass-index': 'MI',
@@ -189,7 +196,7 @@ describe('classic catalog registration', () => {
         for (const spec of classicSpecs) {
             const expected = libraryShort[spec.type];
             expect(expected, spec.type).toBeDefined();
-            expect(spec.shortTitle ?? spec.title, spec.type).toBe(expected);
+            expect(en(spec.shortTitle ?? spec.title), spec.type).toBe(expected);
         }
     });
 
@@ -214,20 +221,56 @@ describe('classic catalog registration', () => {
         const byType = new Map(classicSpecs.map((s) => [s.type, s] as const));
         const smaSpec = byType.get('sma')!;
         const emaSpec = byType.get('ema')!;
-        expect(smaSpec.title).toBe('Simple Moving Average');
-        expect(emaSpec.title).toBe('Exponential Moving Average');
+        expect(en(smaSpec.title)).toBe('Simple Moving Average');
+        expect(en(emaSpec.title)).toBe('Exponential Moving Average');
         expect(smaSpec.inputs.map((i) => i.key)).toEqual(['length', 'source', 'offset', 'color']);
         expect(emaSpec.inputs.map((i) => i.key)).toEqual(['length', 'source', 'offset', 'color']);
         const closes = bars.map((b) => b.close);
         const smaOut = smaSpec.compute(bars, classicDescriptor(smaSpec).defaultInputs()).plots[0]!;
         const emaOut = emaSpec.compute(bars, classicDescriptor(emaSpec).defaultInputs()).plots[0]!;
-        expect(smaOut.title).toBe('SMA');
-        expect(emaOut.title).toBe('EMA');
+        expect(en(smaOut.title)).toBe('SMA');
+        expect(en(emaOut.title)).toBe('EMA');
         expect(smaOut.values).toEqual(sma(closes, 20));
         expect(emaOut.values).toEqual(ema(closes, 20));
         // The offset shifts the line without changing its values.
         const shifted = smaSpec.compute(bars, { ...classicDescriptor(smaSpec).defaultInputs(), offset: 2 }).plots[0]!;
         expect(shifted.values[30]).toBe(smaOut.values[28]);
+    });
+
+    it('ships the regression as an LSMA on price and a Linear Regression Slope in its own pane', () => {
+        const bars = Array.from({ length: 200 }, (_, i) => bar(100 + 10 * Math.sin(i / 20) + i * 0.1, i));
+        const closes = bars.map((b) => b.close);
+        const byType = new Map(classicSpecs.map((s) => [s.type, s] as const));
+        expect(byType.has('linear-regression')).toBe(false);
+
+        const lsma = byType.get('lsma')!;
+        expect(en(lsma.title)).toBe('Least Squares Moving Average');
+        expect(lsma.overlay).toBe(true);
+        const lsmaOut = lsma.compute(bars, classicDescriptor(lsma).defaultInputs());
+        expect(lsmaOut.plots).toHaveLength(1);
+        expect(lsmaOut.plots[0]!.values).toEqual(linreg(closes, 25, 0));
+        // The offset steps back along each bar's own fit, like the Moving Average study's LSMA type.
+        const stepped = lsma.compute(bars, { ...classicDescriptor(lsma).defaultInputs(), length: 30, offset: 3 }).plots[0]!;
+        expect(stepped.values).toEqual(linreg(closes, 30, 3));
+
+        const slope = byType.get('linear-regression-slope')!;
+        expect(en(slope.title)).toBe('Linear Regression Slope');
+        expect(slope.overlay).toBe(false);
+        const slopeOut = slope.compute(bars, classicDescriptor(slope).defaultInputs());
+        const curve = linreg(closes, 100, 0);
+        const prior = linreg(closes, 100, 1);
+        expect(slopeOut.plots[0]!.values[150]).toBeCloseTo(curve[150]! - prior[150]!, 10);
+        expect(slopeOut.plots[0]!.values[98]).toBeNaN();
+        expect(slopeOut.levels?.map((l) => l.price)).toEqual([0]);
+    });
+
+    it('never leaves a study pane empty: each pane study keeps a visible plot in its own pane', () => {
+        const bars = Array.from({ length: 400 }, (_, i) => bar(100 + 10 * Math.sin(i / 15) + (i % 7), i, 1000 + (i % 50) * 10));
+        for (const spec of classicSpecs.filter((s) => !s.overlay)) {
+            const out = spec.compute(bars, classicDescriptor(spec).defaultInputs());
+            const inPane = out.plots.filter((p) => !p.overlay && p.display?.pane !== false);
+            expect(inPane.length, spec.type).toBeGreaterThan(0);
+        }
     });
 
     it('every compute yields bar-aligned plot arrays on synthetic bars', () => {
@@ -429,5 +472,67 @@ describe('classic descriptor adapter', () => {
         const styled = spec.inputs.filter((i) => i.group === 'Style').map((i) => i.key);
         expect(styled).toEqual(['bullColor', 'bearColor', 'bandsColor', 'fill']);
         expect(spec.inputs.slice(-styled.length).map((i) => i.key)).toEqual(styled);
+    });
+
+    it('a plot whose name reads better on screen keeps the name hosts and saved styles know it by', () => {
+        const bars = Array.from({ length: 80 }, (_, i) => bar(100 + Math.sin(i / 4) * 5, i, 1000));
+        const named = (type: string): Array<[string, string | undefined]> =>
+            runOnce(classicSpecs.find((s) => s.type === type)!, bars).series!.map((s) => [s.title, en(s.displayTitle)]);
+        expect(named('average-directional-index')).toContainEqual(['-DI', '−DI']);
+        expect(named('vortex-indicator')).toContainEqual(['VI-', 'VI−']);
+        expect(named('chande-kroll-stop')).toEqual([
+            ['Stop Short', 'Short Stop'],
+            ['Stop Long', 'Long Stop'],
+        ]);
+        expect(named('gator-oscillator')).toEqual([
+            ['Upper Histogram (Jaw - Teeth)', 'Upper Histogram (Jaw − Teeth)'],
+            ['Lower Histogram (Teeth - Lips)', 'Lower Histogram (Teeth − Lips)'],
+        ]);
+        expect(named('52-week-high-low')).toEqual([
+            ['52 Week High', '52-Week High'],
+            ['52 Week Low', '52-Week Low'],
+        ]);
+        const vortex = runOnce(classicSpecs.find((s) => s.type === 'vortex-indicator')!, bars).series!;
+        expect(vortex.map((s) => s.id)).toEqual(['vortex-indicator:line:vi+#0', 'vortex-indicator:line:vi-#1']);
+    });
+
+    it('names every pivot type and the percentage mode in the chart language, while layouts keep the English value', () => {
+        const optionsShown = (type: string, key: string, i18n: ReturnType<typeof createTranslator>): Record<string, string> => {
+            const input = classicDescriptor(classicSpecs.find((s) => s.type === type)!)
+                .inputsSchema()
+                .find((i) => i.key === key)!;
+            return Object.fromEntries(input.options!.map((value) => [value, i18n.t(input.display?.options?.[value] ?? value)]));
+        };
+        const de = createTranslator({
+            locale: 'de',
+            messages: {
+                'indicator.option.fibonacci': 'Fibonacci-DE',
+                'indicator.option.camarilla': 'Camarilla-DE',
+                'indicator.option.woodie': 'Woodie-DE',
+                'indicator.option.rocPercent': 'ROC in %',
+            },
+        });
+        expect(optionsShown('pivot-points', 'kind', de)).toEqual({
+            Traditional: 'Traditional',
+            Fibonacci: 'Fibonacci-DE',
+            Camarilla: 'Camarilla-DE',
+            Woodie: 'Woodie-DE',
+        });
+        expect(optionsShown('rate-of-change', 'mode', de)).toEqual({ 'ROC %': 'ROC in %', Momentum: 'Momentum' });
+        expect(optionsShown('pivot-points', 'kind', english)).toEqual({
+            Traditional: 'Traditional',
+            Fibonacci: 'Fibonacci',
+            Camarilla: 'Camarilla',
+            Woodie: 'Woodie',
+        });
+    });
+
+    it("writes the Fibonacci pivot ratios with the locale's decimal separator", () => {
+        const kind = classicDescriptor(classicSpecs.find((s) => s.type === 'pivot-points')!)
+            .inputsSchema()
+            .find((i) => i.key === 'kind')!;
+        expect(kind.tooltip).toContain('Fibonacci projects 38.2/61.8/100% of the prior range');
+        expect(english.t(kind.display!.tooltip!)).toBe(kind.tooltip);
+        expect(createTranslator({ locale: 'de' }).t(kind.display!.tooltip!)).toContain('38,2/61,8/100%');
     });
 });

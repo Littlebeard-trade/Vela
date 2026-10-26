@@ -11,12 +11,23 @@
 // that a docked column would crush the plot (an editor). A floating panel carries a PIN in
 // its header: pinned, it docks as a column after all; the choice is the user's and persists
 // with the dock state.
+import { msg } from '../core/i18n/message';
+import { textOf } from '../core/i18n/text';
+import type { MessageArgs, MessageLike, Translator } from '../core/i18n/types';
 import { injectStyles } from '../ui/styles';
 import { iconEl } from '../ui/icons';
 import { announceSurface } from '../ui/surface-events';
 import { holdForExit, type SurfaceExit } from '../ui/surface-exit';
 
 const STYLE_ID = 'vela-widget-sidepanel';
+
+const TEXT = {
+    close: msg('widget.sidePanel.close', 'Close'),
+    restore: msg('widget.sidePanel.restore', 'Restore'),
+    maximize: msg('widget.sidePanel.maximize', 'Maximize'),
+    unpin: msg('widget.sidePanel.unpin', 'Unpin — float over the chart'),
+    pin: msg('widget.sidePanel.pin', 'Pin beside the chart'),
+};
 
 /** Width (px) a panel takes when it declares none. */
 export const DEFAULT_PANEL_WIDTH = 280;
@@ -179,6 +190,8 @@ export interface SidePanelOptions {
     /** A header button that MAXIMIZES the panel over every chart of the shell, and restores
      *  it. For panels that are sometimes the main work surface (an editor). */
     maximizable?: boolean;
+    /** The shell's translator (title, header buttons). Absent: English. */
+    i18n?: Translator;
 }
 
 /**
@@ -211,6 +224,9 @@ export class SidePanel {
     onPlacementChange: ((overlay: boolean) => void) | null = null;
     protected readonly body: HTMLElement;
     private readonly heading: HTMLElement;
+    private title: MessageLike;
+    private readonly closeButton: HTMLButtonElement;
+    protected readonly i18n: Translator | null;
     private readonly slot: HTMLElement;
     private readonly declaredWidth: number;
     private readonly minWidth: number;
@@ -231,8 +247,10 @@ export class SidePanel {
     private exit: SurfaceExit | null = null;
 
     /** `modifier` is the panel's own class, carrying its content styles (e.g. `vela-ot`). */
-    constructor(host: HTMLElement, title: string, modifier: string, opts: SidePanelOptions = {}) {
+    constructor(host: HTMLElement, title: MessageLike, modifier: string, opts: SidePanelOptions = {}) {
         const doc = host.ownerDocument;
+        this.i18n = opts.i18n ?? null;
+        this.title = title;
         injectStyles(STYLE_ID, CSS, doc);
         // A FIXED panel is its own bound — the resize bounds would otherwise silently rewrite a
         // declared width a host set from code (or restored) outside the resizable defaults.
@@ -251,16 +269,17 @@ export class SidePanel {
         header.className = 'vela-panel-header';
         this.heading = doc.createElement('span');
         this.heading.className = 'vela-panel-title';
-        this.heading.textContent = title;
+        this.heading.textContent = this.t(title);
         // The header SLOT — the space between the title and the close button, handed to a
         // contributed panel's `mount` so it can dock its own compact controls there
         // (script name, action icons) instead of spending a toolbar row on them.
         this.slot = doc.createElement('div');
         this.slot.className = 'vela-panel-header-slot';
         const close = doc.createElement('button');
+        this.closeButton = close;
         close.className = 'vela-panel-close';
         close.appendChild(iconEl('close', doc));
-        close.title = 'Close';
+        close.title = this.t(TEXT.close);
         close.addEventListener('click', () => this.toggle(false));
         // The pin exists only on a panel that can float: pressed, it docks the panel as a
         // column (the chart makes room); released, the panel floats again.
@@ -351,7 +370,7 @@ export class SidePanel {
         if (!this.maxButton) return;
         const doc = this.maxButton.ownerDocument;
         this.maxButton.replaceChildren(iconEl(this.maximizedOn ? 'restore' : 'maximize', doc));
-        this.maxButton.title = this.maximizedOn ? 'Restore' : 'Maximize';
+        this.maxButton.title = this.t(this.maximizedOn ? TEXT.restore : TEXT.maximize);
         this.maxButton.setAttribute('aria-label', this.maxButton.title);
         this.maxButton.setAttribute('aria-pressed', this.maximizedOn ? 'true' : 'false');
     }
@@ -370,8 +389,22 @@ export class SidePanel {
 
     /** Replace the header title. The topbar toggle keeps the DECLARED title as its
      *  tooltip — this only changes what the open column says about itself. */
-    setTitle(title: string): void {
-        this.heading.textContent = title;
+    setTitle(title: MessageLike): void {
+        this.title = title;
+        this.heading.textContent = this.t(title);
+    }
+
+    /** Text in the shell's language. */
+    protected t(text: MessageLike, values?: MessageArgs): string {
+        return textOf(this.i18n, text, values);
+    }
+
+    /** Re-read the header in the current language; a panel with its own text extends it. */
+    relocalize(): void {
+        this.heading.textContent = this.t(this.title);
+        this.closeButton.title = this.t(TEXT.close);
+        this.refreshPin();
+        this.refreshMaxButton();
     }
 
     /** Current width in px. */
@@ -408,7 +441,7 @@ export class SidePanel {
         const doc = this.pin.ownerDocument;
         this.pin.replaceChildren(iconEl(pinned ? 'pin-filled' : 'pin', doc));
         this.pin.dataset.on = pinned ? '1' : '0';
-        this.pin.title = pinned ? 'Unpin — float over the chart' : 'Pin beside the chart';
+        this.pin.title = this.t(pinned ? TEXT.unpin : TEXT.pin);
         this.pin.setAttribute('aria-label', this.pin.title);
         this.pin.setAttribute('aria-pressed', pinned ? 'true' : 'false');
     }
